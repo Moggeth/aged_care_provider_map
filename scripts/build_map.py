@@ -395,6 +395,8 @@ HTML_TEMPLATE = """<!doctype html>
     select, input { width: 100%; box-sizing: border-box; border: 1px solid #bcccdc; border-radius: 6px; padding: 8px 10px; font-size: 14px; background: #fff; color: #17212b; }
     select:focus, input:focus, button:focus-visible { outline: 3px solid rgba(45, 125, 210, .24); outline-offset: 1px; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .advanced summary { display: none; }
+    .advanced-content { display: grid; gap: 10px; }
     .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     button { border: 1px solid #9fb3c8; border-radius: 6px; background: #f8fafc; color: #17212b; cursor: pointer; font-size: 14px; min-height: 36px; padding: 7px 10px; }
     button:hover { background: #eef4fa; }
@@ -403,16 +405,29 @@ HTML_TEMPLATE = """<!doctype html>
     .legend-item { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 7px; }
     .swatch { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,.25); }
     .leaflet-container { font-family: Arial, Helvetica, sans-serif; }
+    .leaflet-control-attribution { max-width: min(260px, calc(100vw - 72px)); }
     .leaflet-popup-content { min-width: 230px; }
     .popup-title { font-weight: 700; margin-bottom: 6px; }
     .popup-row { margin: 3px 0; }
     .dot { width: 9px; height: 9px; border: 1px solid rgba(0,0,0,.35); border-radius: 999px; display: inline-block; margin-right: 6px; vertical-align: middle; }
     .count-pill { background: #e6f0f8; border: 1px solid #bcccdc; border-radius: 999px; color: #243b53; padding: 2px 7px; }
     @media (max-width: 720px) {
-      .panel { top: 8px; left: 8px; width: calc(100vw - 16px); }
+      .panel { top: auto; bottom: 8px; left: 8px; width: calc(100vw - 16px); max-height: min(52dvh, 390px); overflow: auto; }
+      .panel header { padding: 10px 12px 8px; }
+      h1 { font-size: 15px; margin-bottom: 6px; }
+      .meta { gap: 6px; font-size: 11px; }
+      .controls { gap: 8px; padding: 10px 12px; }
+      select, input { min-height: 38px; font-size: 16px; }
       .row { grid-template-columns: 1fr; }
       .actions { grid-template-columns: 1fr; }
+      .advanced summary { display: flex; align-items: center; justify-content: space-between; min-height: 36px; border: 1px solid #bcccdc; border-radius: 6px; background: #f8fafc; color: #17212b; cursor: pointer; padding: 0 10px; font-size: 14px; list-style: none; }
+      .advanced summary::-webkit-details-marker { display: none; }
+      .advanced summary::after { content: "Show"; color: #52606d; font-size: 12px; }
+      .advanced[open] summary { margin-bottom: 8px; }
+      .advanced[open] summary::after { content: "Hide"; }
+      .stats { padding: 8px 12px 10px; }
       .legend { display: none; }
+      .leaflet-top.leaflet-right { top: 8px; }
     }
   </style>
 </head>
@@ -425,16 +440,21 @@ HTML_TEMPLATE = """<!doctype html>
     </header>
     <div class="controls">
       <label>Search<input id="search" type="search" placeholder="Service, provider, suburb, address"></label>
-      <label>Provider<select id="provider"></select></label>
-      <div class="row">
-        <label>State<select id="state"></select></label>
-        <label>Care type<select id="careType"></select></label>
-      </div>
-      <label>Map style<select id="mapStyle"></select></label>
-      <div class="actions">
-        <button id="shareButton" type="button">Copy share link</button>
-        <button id="resetButton" type="button">Reset filters</button>
-      </div>
+      <details id="filtersPanel" class="advanced" open>
+        <summary>Filters and sharing</summary>
+        <div class="advanced-content">
+          <label>Provider<select id="provider"></select></label>
+          <div class="row">
+            <label>State<select id="state"></select></label>
+            <label>Care type<select id="careType"></select></label>
+          </div>
+          <label>Map style<select id="mapStyle"></select></label>
+          <div class="actions">
+            <button id="shareButton" type="button">Copy share link</button>
+            <button id="resetButton" type="button">Reset filters</button>
+          </div>
+        </div>
+      </details>
     </div>
     <div class="stats">
       <div id="visibleCount"></div>
@@ -453,13 +473,16 @@ HTML_TEMPLATE = """<!doctype html>
     const careTypeSelect = document.getElementById('careType');
     const mapStyleSelect = document.getElementById('mapStyle');
     const searchInput = document.getElementById('search');
+    const filtersPanel = document.getElementById('filtersPanel');
     const shareButton = document.getElementById('shareButton');
     const resetButton = document.getElementById('resetButton');
     const visibleCount = document.getElementById('visibleCount');
     const legend = document.getElementById('legend');
 
     const map = L.map('map', { preferCanvas: true, zoomControl: false });
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    map.attributionControl.setPosition('topleft');
+    map.attributionControl.setPrefix(false);
+    L.control.zoom({ position: 'topright' }).addTo(map);
     const baseLayers = {
       light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 20,
@@ -614,6 +637,9 @@ HTML_TEMPLATE = """<!doctype html>
     shareButton.addEventListener('click', copyShareLink);
     resetButton.addEventListener('click', resetFilters);
     applyUrlParams();
+    if (matchMedia('(max-width: 720px)').matches) {
+      filtersPanel.removeAttribute('open');
+    }
     renderLegend();
     applyFilters();
   </script>
