@@ -249,12 +249,33 @@ def verification_keys_for_rating(row):
     return exact, service_location
 
 
-def write_verification_report(homes):
-    path = OUTPUT / "verification_report.csv"
-    summary_path = OUTPUT / "verification_summary.json"
+def verification_status_for_home(home, exact_rating_keys, service_location_rating_keys):
+    exact_key, service_location_key = verification_keys_for_home(home)
+    if exact_key in exact_rating_keys:
+        return "confirmed_in_feb_2026_star_ratings", "Exact service, provider, suburb and state match."
+    if service_location_key in service_location_rating_keys:
+        return "service_location_match_provider_changed", "Service name, suburb and state match; provider name differs in Star Ratings."
+    return (
+        "not_matched_in_feb_2026_star_ratings",
+        "Included in official 30 June 2025 service list, but not matched in February 2026 Star Ratings by service/suburb/state.",
+    )
+
+
+def verification_counts(homes):
     ratings = load_star_ratings()
     exact_rating_keys = {verification_keys_for_rating(row)[0] for row in ratings}
     service_location_rating_keys = {verification_keys_for_rating(row)[1] for row in ratings}
+    counts = Counter()
+    for home in homes:
+        status, _notes = verification_status_for_home(home, exact_rating_keys, service_location_rating_keys)
+        counts[status] += 1
+    return ratings, counts, exact_rating_keys, service_location_rating_keys
+
+
+def write_verification_report(homes):
+    path = OUTPUT / "verification_report.csv"
+    summary_path = OUTPUT / "verification_summary.json"
+    ratings, counts, exact_rating_keys, service_location_rating_keys = verification_counts(homes)
     fields = [
         "service_name",
         "provider_name",
@@ -267,22 +288,11 @@ def write_verification_report(homes):
         "star_ratings_extract",
         "notes",
     ]
-    counts = Counter()
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         for home in homes:
-            exact_key, service_location_key = verification_keys_for_home(home)
-            if exact_key in exact_rating_keys:
-                status = "confirmed_in_feb_2026_star_ratings"
-                notes = "Exact service, provider, suburb and state match."
-            elif service_location_key in service_location_rating_keys:
-                status = "service_location_match_provider_changed"
-                notes = "Service name, suburb and state match; provider name differs in Star Ratings."
-            else:
-                status = "not_matched_in_feb_2026_star_ratings"
-                notes = "Included in official 30 June 2025 service list, but not matched in February 2026 Star Ratings by service/suburb/state."
-            counts[status] += 1
+            status, notes = verification_status_for_home(home, exact_rating_keys, service_location_rating_keys)
             writer.writerow(
                 {
                     "service_name": home["service_name"],
@@ -429,6 +439,7 @@ def write_html(homes, providers):
     states = sorted({home["state"] for home in homes if home["state"]})
     provider_counts = Counter(home["provider_name"] for home in homes)
     top_providers = provider_counts.most_common(20)
+    _ratings, verification, _exact_rating_keys, _service_location_rating_keys = verification_counts(homes)
     lats = [home["latitude"] for home in homes]
     lons = [home["longitude"] for home in homes]
     data = [
@@ -444,6 +455,9 @@ def write_html(homes, providers):
     html_text = html_text.replace("__STATES__", json.dumps(states, ensure_ascii=False))
     html_text = html_text.replace("__COUNT__", str(len(homes)))
     html_text = html_text.replace("__PROVIDER_COUNT__", str(len(providers)))
+    html_text = html_text.replace("__VERIFIED_EXACT__", str(verification["confirmed_in_feb_2026_star_ratings"]))
+    html_text = html_text.replace("__VERIFIED_PROVIDER_CHANGED__", str(verification["service_location_match_provider_changed"]))
+    html_text = html_text.replace("__VERIFIED_UNMATCHED__", str(verification["not_matched_in_feb_2026_star_ratings"]))
     html_text = html_text.replace("__TOP_PROVIDERS__", json.dumps(top_providers, ensure_ascii=False))
     html_text = html_text.replace("__BOUNDS__", json.dumps([[min(lats), min(lons)], [max(lats), max(lons)]]))
     path.write_text(html_text, encoding="utf-8")
@@ -477,7 +491,7 @@ def write_summary(homes, providers):
 def write_readme(paths):
     path = ROOT / "README.md"
     path.write_text(
-        f"""# Australia aged care homes by provider
+        f"""# Australia residential aged care homes by provider
 
 This folder contains a provider-coloured map of Australian residential aged-care homes using the official GEN Aged Care Data service list current as at 30 June 2025.
 
@@ -559,6 +573,11 @@ HTML_TEMPLATE = """<!doctype html>
     .stats { padding: 10px 16px 14px; border-top: 1px solid #e1e7ee; font-size: 13px; color: #334e68; }
     .legend { max-height: 150px; overflow: auto; display: grid; gap: 5px; margin-top: 8px; }
     .legend-item { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 7px; }
+    .about { border-top: 1px solid #e1e7ee; font-size: 13px; color: #334e68; }
+    .about summary { cursor: pointer; padding: 10px 16px; color: #17212b; font-weight: 700; list-style-position: inside; }
+    .about-content { display: grid; gap: 8px; padding: 0 16px 14px; line-height: 1.4; }
+    .about-content p { margin: 0; }
+    .about-content a { color: #1d5fa7; }
     .swatch { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,.25); }
     .leaflet-container { font-family: Arial, Helvetica, sans-serif; }
     .leaflet-control-attribution { max-width: min(260px, calc(100vw - 72px)); }
@@ -582,6 +601,8 @@ HTML_TEMPLATE = """<!doctype html>
       .advanced[open] summary { margin-bottom: 8px; }
       .advanced[open] summary::after { content: "Hide"; }
       .stats { padding: 8px 12px 10px; }
+      .about summary { padding: 9px 12px; }
+      .about-content { padding: 0 12px 12px; }
       .legend { display: none; }
       .leaflet-top.leaflet-right { top: 8px; }
     }
@@ -613,6 +634,16 @@ HTML_TEMPLATE = """<!doctype html>
       <div id="visibleCount"></div>
       <div class="legend" id="legend"></div>
     </div>
+    <details class="about">
+      <summary>About this data</summary>
+      <div class="about-content">
+        <p>This map shows Australian residential aged care homes from the official GEN Aged Care Data service list, published by the Department of Health, Disability and Ageing.</p>
+        <p>Source: <a href="https://www.gen-agedcaredata.gov.au/resources/access-data/2025/october/aged-care-service-list-30-june-2025" target="_blank" rel="noopener">Aged care service list: 30 June 2025</a>. The source page says the files are current as at 30 June 2025 and updated annually.</p>
+        <p>Included rows have <b>Care Type</b> equal to <b>Residential</b>, residential places above zero, and valid latitude/longitude. This version maps __COUNT__ homes across __PROVIDER_COUNT__ providers.</p>
+        <p>Cross-check: <a href="https://www.health.gov.au/resources/publications/star-ratings-quarterly-data-extract-february-2026?language=en" target="_blank" rel="noopener">February 2026 Star Ratings service-level extract</a>. __VERIFIED_EXACT__ homes matched exactly; __VERIFIED_PROVIDER_CHANGED__ matched by service/suburb/state with provider-name differences; __VERIFIED_UNMATCHED__ were not matched and should be manually reviewed.</p>
+        <p>Absence from the Star Ratings extract is not treated as proof that a home has closed.</p>
+      </div>
+    </details>
   </section>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>

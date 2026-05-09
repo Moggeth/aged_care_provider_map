@@ -30,6 +30,11 @@
     .stats { padding: 10px 16px 14px; border-top: 1px solid #e1e7ee; font-size: 13px; color: #334e68; }
     .legend { max-height: 150px; overflow: auto; display: grid; gap: 5px; margin-top: 8px; }
     .legend-item { display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 7px; }
+    .about { border-top: 1px solid #e1e7ee; font-size: 13px; color: #334e68; }
+    .about summary { cursor: pointer; padding: 10px 16px; color: #17212b; font-weight: 700; list-style-position: inside; }
+    .about-content { display: grid; gap: 8px; padding: 0 16px 14px; line-height: 1.4; }
+    .about-content p { margin: 0; }
+    .about-content a { color: #1d5fa7; }
     .swatch { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,.25); }
     .leaflet-container { font-family: Arial, Helvetica, sans-serif; }
     .leaflet-control-attribution { max-width: min(260px, calc(100vw - 72px)); }
@@ -53,6 +58,8 @@
       .advanced[open] summary { margin-bottom: 8px; }
       .advanced[open] summary::after { content: "Hide"; }
       .stats { padding: 8px 12px 10px; }
+      .about summary { padding: 9px 12px; }
+      .about-content { padding: 0 12px 12px; }
       .legend { display: none; }
       .leaflet-top.leaflet-right { top: 8px; }
     }
@@ -84,6 +91,16 @@
       <div id="visibleCount"></div>
       <div class="legend" id="legend"></div>
     </div>
+    <details class="about">
+      <summary>About this data</summary>
+      <div class="about-content">
+        <p>This map shows Australian residential aged care homes from the official GEN Aged Care Data service list, published by the Department of Health, Disability and Ageing.</p>
+        <p>Source: <a href="https://www.gen-agedcaredata.gov.au/resources/access-data/2025/october/aged-care-service-list-30-june-2025" target="_blank" rel="noopener">Aged care service list: 30 June 2025</a>. The source page says the files are current as at 30 June 2025 and updated annually.</p>
+        <p>Included rows have <b>Care Type</b> equal to <b>Residential</b>, residential places above zero, and valid latitude/longitude. This version maps 2590 homes across 709 providers.</p>
+        <p>Cross-check: <a href="https://www.health.gov.au/resources/publications/star-ratings-quarterly-data-extract-february-2026?language=en" target="_blank" rel="noopener">February 2026 Star Ratings service-level extract</a>. 2386 homes matched exactly; 145 matched by service/suburb/state with provider-name differences; 59 were not matched and should be manually reviewed.</p>
+        <p>Absence from the Star Ratings extract is not treated as proof that a home has closed.</p>
+      </div>
+    </details>
   </section>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
