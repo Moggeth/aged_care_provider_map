@@ -1,0 +1,106 @@
+{
+  "source": "GEN Aged Care Data / Department of Health, Disability and Ageing, Aged care service list: 30 June 2025",
+  "source_file": "Service-List-2025-Australia_300126.xlsx",
+  "generated_home_count": 2798,
+  "provider_count": 744,
+  "total_residential_places": 228259,
+  "median_residential_places": 78.0,
+  "care_type_counts": {
+    "Innovative Pool": 1,
+    "Multi-Purpose Service": 183,
+    "National Aboriginal and Torres Strait Islander Aged Care Program": 24,
+    "Residential": 2590
+  },
+  "state_counts": {
+    "ACT": 27,
+    "NSW": 886,
+    "NT": 19,
+    "QLD": 499,
+    "SA": 264,
+    "TAS": 68,
+    "VIC": 746,
+    "WA": 289
+  },
+  "top_20_providers": [
+    [
+      "DPG Services Pty Ltd",
+      138
+    ],
+    [
+      "RSL Care RDNS Limited",
+      88
+    ],
+    [
+      "Estia Investments Pty Ltd",
+      87
+    ],
+    [
+      "The Uniting Church in Australia Property Trust (NSW)",
+      70
+    ],
+    [
+      "Bupa Aged Care Australia Pty Ltd",
+      57
+    ],
+    [
+      "Calvary Aged Care Limited",
+      57
+    ],
+    [
+      "Arcare Pty Ltd",
+      52
+    ],
+    [
+      "Queensland Health",
+      52
+    ],
+    [
+      "Regis Aged Care Pty Ltd",
+      51
+    ],
+    [
+      "The Uniting Church in Australia Property Trust (Q.)",
+      46
+    ],
+    [
+      "Catholic Healthcare Limited",
+      41
+    ],
+    [
+      "Country Health Service",
+      38
+    ],
+    [
+      "BaptistCare NSW & ACT",
+      35
+    ],
+    [
+      "Mercy Aged and Community Care Ltd",
+      30
+    ],
+    [
+      "Respect Group Limited",
+      29
+    ],
+    [
+      "Southern Cross Care (NSW & ACT) Limited",
+      27
+    ],
+    [
+      "Western NSW Local Health District",
+      25
+    ],
+    [
+      "RSL LifeCare Limited",
+      25
+    ],
+    [
+      "St Vincent's Care Services Ltd",
+      25
+    ],
+    [
+      "Churches of Christ in Queensland",
+      24
+    ]
+  ]
+}
