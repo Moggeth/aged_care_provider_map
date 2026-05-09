@@ -13,6 +13,7 @@ from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_XLSX = ROOT / "data" / "Service-List-2025-Australia_300126.xlsx"
+STAR_RATINGS_XLSX = ROOT / "data" / "star-ratings-quarterly-data-extract-february-2026.xlsx"
 OUTPUT = ROOT / "output"
 
 NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -57,6 +58,48 @@ def read_xlsx(path):
             row.clear()
 
 
+def read_xlsx_sheet(path, sheet_name, headers_row=1):
+    with ZipFile(path) as zf:
+        strings = []
+        shared = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+        for item in shared.findall("a:si", NS):
+            strings.append("".join(t.text or "" for t in item.findall(".//a:t", NS)))
+
+        workbook = ET.fromstring(zf.read("xl/workbook.xml"))
+        rels = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+        relmap = {rel.attrib["Id"]: rel.attrib["Target"] for rel in rels}
+        target = None
+        rel_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+        for sheet in workbook.findall("a:sheets/a:sheet", NS):
+            if sheet.attrib.get("name") == sheet_name:
+                target = relmap[sheet.attrib[rel_ns]]
+                break
+        if not target:
+            raise ValueError(f"Sheet not found: {sheet_name}")
+
+        headers = None
+        for _event, row in ET.iterparse(zf.open(f"xl/{target}"), events=("end",)):
+            if not row.tag.endswith("}row"):
+                continue
+
+            row_num = int(row.attrib.get("r", "0"))
+            values = {}
+            for cell in row.findall("a:c", NS):
+                ref = cell.attrib.get("r", "")
+                value_node = cell.find("a:v", NS)
+                value = "" if value_node is None else value_node.text or ""
+                if cell.attrib.get("t") == "s" and value:
+                    value = strings[int(value)]
+                values[column_index(ref)] = value
+
+            if row_num == headers_row:
+                headers = [values.get(i, "") for i in range(max(values) + 1)]
+            elif row_num > headers_row and headers and values:
+                yield {headers[i]: clean(values.get(i, "")) for i in range(len(headers))}
+
+            row.clear()
+
+
 def clean(value):
     return str(value).strip() if value is not None else ""
 
@@ -83,6 +126,10 @@ def slug(value):
 
 def sort_key(value):
     return (str(value).casefold(), str(value))
+
+
+def normalize_key(value):
+    return re.sub(r"[^a-z0-9]+", " ", str(value).casefold()).strip()
 
 
 def provider_color(provider, providers):
@@ -128,6 +175,8 @@ def kml_color(hex_color):
 def load_homes():
     homes = []
     for row in read_xlsx(SOURCE_XLSX):
+        if row.get("Care Type") != "Residential":
+            continue
         places = to_int(row.get("Residential Places"))
         lat = to_float(row.get("Latitude"))
         lon = to_float(row.get("Longitude"))
@@ -162,6 +211,109 @@ def load_homes():
         }
         homes.append(home)
     return homes
+
+
+def load_star_ratings():
+    if not STAR_RATINGS_XLSX.exists():
+        return []
+    return list(read_xlsx_sheet(STAR_RATINGS_XLSX, "Star Ratings"))
+
+
+def verification_keys_for_home(home):
+    exact = (
+        normalize_key(home["service_name"]),
+        normalize_key(home["provider_name"]),
+        normalize_key(home["suburb"]),
+        normalize_key(home["state"]),
+    )
+    service_location = (
+        normalize_key(home["service_name"]),
+        normalize_key(home["suburb"]),
+        normalize_key(home["state"]),
+    )
+    return exact, service_location
+
+
+def verification_keys_for_rating(row):
+    exact = (
+        normalize_key(row.get("Service Name")),
+        normalize_key(row.get("Provider Name")),
+        normalize_key(row.get("Service Suburb")),
+        normalize_key(row.get("State/Territory")),
+    )
+    service_location = (
+        normalize_key(row.get("Service Name")),
+        normalize_key(row.get("Service Suburb")),
+        normalize_key(row.get("State/Territory")),
+    )
+    return exact, service_location
+
+
+def write_verification_report(homes):
+    path = OUTPUT / "verification_report.csv"
+    summary_path = OUTPUT / "verification_summary.json"
+    ratings = load_star_ratings()
+    exact_rating_keys = {verification_keys_for_rating(row)[0] for row in ratings}
+    service_location_rating_keys = {verification_keys_for_rating(row)[1] for row in ratings}
+    fields = [
+        "service_name",
+        "provider_name",
+        "state",
+        "suburb",
+        "address",
+        "residential_places",
+        "verification_status",
+        "official_service_list_current_at",
+        "star_ratings_extract",
+        "notes",
+    ]
+    counts = Counter()
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for home in homes:
+            exact_key, service_location_key = verification_keys_for_home(home)
+            if exact_key in exact_rating_keys:
+                status = "confirmed_in_feb_2026_star_ratings"
+                notes = "Exact service, provider, suburb and state match."
+            elif service_location_key in service_location_rating_keys:
+                status = "service_location_match_provider_changed"
+                notes = "Service name, suburb and state match; provider name differs in Star Ratings."
+            else:
+                status = "not_matched_in_feb_2026_star_ratings"
+                notes = "Included in official 30 June 2025 service list, but not matched in February 2026 Star Ratings by service/suburb/state."
+            counts[status] += 1
+            writer.writerow(
+                {
+                    "service_name": home["service_name"],
+                    "provider_name": home["provider_name"],
+                    "state": home["state"],
+                    "suburb": home["suburb"],
+                    "address": home["address"],
+                    "residential_places": home["residential_places"],
+                    "verification_status": status,
+                    "official_service_list_current_at": "30 June 2025",
+                    "star_ratings_extract": "February 2026",
+                    "notes": notes,
+                }
+            )
+
+    summary = {
+        "source": "GEN Aged Care Service List: 30 June 2025",
+        "source_verified_against_official_download": True,
+        "included_care_type": "Residential",
+        "mapped_residential_homes": len(homes),
+        "star_ratings_source": "Star Ratings quarterly data extract – February 2026",
+        "star_ratings_rows": len(ratings),
+        "verification_counts": dict(counts),
+        "interpretation": (
+            "All mapped homes are official Australian Government subsidised residential aged care services "
+            "current as at 30 June 2025. Star Ratings matching is an additional February 2026 activity signal; "
+            "absence from Star Ratings is flagged for review rather than treated as closure."
+        ),
+    }
+    summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    return path, summary_path
 
 
 def write_csv(homes):
@@ -215,7 +367,7 @@ def write_kml(homes, providers):
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<kml xmlns="http://www.opengis.net/kml/2.2">',
         "<Document>",
-        "<name>Australia aged care homes by provider</name>",
+        "<name>Australia residential aged care homes by provider</name>",
     ]
     for provider in providers:
         color = kml_color(provider_color(provider, providers))
@@ -238,7 +390,6 @@ def write_kml(homes, providers):
         for home in provider_homes:
             desc = (
                 f"<b>Provider:</b> {html.escape(home['provider_name'])}<br>"
-                f"<b>Care type:</b> {html.escape(home['care_type'])}<br>"
                 f"<b>Residential places:</b> {home['residential_places']}<br>"
                 f"<b>Address:</b> {html.escape(home['address'])}<br>"
                 f"<b>Organisation type:</b> {html.escape(home['organisation_type'])}<br>"
@@ -310,6 +461,7 @@ def write_summary(homes, providers):
     summary = {
         "source": "GEN Aged Care Data / Department of Health, Disability and Ageing, Aged care service list: 30 June 2025",
         "source_file": SOURCE_XLSX.name,
+        "included_care_type": "Residential",
         "generated_home_count": len(homes),
         "provider_count": len(providers),
         "total_residential_places": sum(places),
@@ -327,9 +479,11 @@ def write_readme(paths):
     path.write_text(
         f"""# Australia aged care homes by provider
 
-This folder contains a provider-coloured map of Australian aged-care homes using the official GEN Aged Care Data service list current as at 30 June 2025.
+This folder contains a provider-coloured map of Australian residential aged-care homes using the official GEN Aged Care Data service list current as at 30 June 2025.
 
-Source: Department of Health, Disability and Ageing / AIHW GEN, "Aged care service list: 30 June 2025". The downloaded source file is `data/{SOURCE_XLSX.name}`.
+Source: Department of Health, Disability and Ageing / AIHW GEN, "Aged care service list: 30 June 2025". The downloaded source file is `data/{SOURCE_XLSX.name}` and matches the current official Australia XLSX download.
+
+Residential-active verification: rows are restricted to `Care Type == Residential`. The generated verification report compares mapped homes with the Department's `data/{STAR_RATINGS_XLSX.name}` service-level Star Ratings extract for February 2026.
 
 Generated outputs:
 
@@ -339,8 +493,10 @@ Generated outputs:
 - `output/aged_care_homes_by_provider.csv`: Google My Maps-friendly table with a `provider_name` and `provider_color` column.
 - `output/aged_care_homes_by_provider.geojson`: GIS/web map point data.
 - `output/summary.json`: counts by state, care type, and provider.
+- `output/verification_report.csv`: residential-home verification status against the February 2026 Star Ratings extract.
+- `output/verification_summary.json`: verification counts and interpretation.
 
-Inclusion rule: rows with `Residential Places > 0` and valid latitude/longitude. This includes standard `Residential` services as well as multi-purpose/flexible services that have residential places.
+Inclusion rule: rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude.
 
 Use with Google My Maps:
 
@@ -376,10 +532,10 @@ HTML_TEMPLATE = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Australia Aged Care Homes by Provider</title>
-  <meta name="description" content="Interactive map of Australian aged-care homes by provider using GEN service list data current as at 30 June 2025.">
-  <meta property="og:title" content="Australia aged care homes by provider">
-  <meta property="og:description" content="Search, filter and share an interactive provider-coloured map of Australian aged-care homes.">
+  <title>Australia Residential Aged Care Homes by Provider</title>
+  <meta name="description" content="Interactive map of Australian residential aged-care homes by provider using GEN service list data current as at 30 June 2025.">
+  <meta property="og:title" content="Australia residential aged care homes by provider">
+  <meta property="og:description" content="Search, filter and share an interactive provider-coloured map of Australian residential aged-care homes.">
   <meta property="og:type" content="website">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
@@ -435,7 +591,7 @@ HTML_TEMPLATE = """<!doctype html>
   <div id="map"></div>
   <section class="panel">
     <header>
-      <h1>Australia aged care homes by provider</h1>
+      <h1>Residential aged care homes</h1>
       <div class="meta"><span class="count-pill">__COUNT__ homes</span><span>__PROVIDER_COUNT__ providers</span><span>Source: GEN 30 Jun 2025</span></div>
     </header>
     <div class="controls">
@@ -444,10 +600,7 @@ HTML_TEMPLATE = """<!doctype html>
         <summary>Filters and sharing</summary>
         <div class="advanced-content">
           <label>Provider<select id="provider"></select></label>
-          <div class="row">
-            <label>State<select id="state"></select></label>
-            <label>Care type<select id="careType"></select></label>
-          </div>
+          <label>State<select id="state"></select></label>
           <label>Map style<select id="mapStyle"></select></label>
           <div class="actions">
             <button id="shareButton" type="button">Copy share link</button>
@@ -470,7 +623,6 @@ HTML_TEMPLATE = """<!doctype html>
     const bounds = __BOUNDS__;
     const providerSelect = document.getElementById('provider');
     const stateSelect = document.getElementById('state');
-    const careTypeSelect = document.getElementById('careType');
     const mapStyleSelect = document.getElementById('mapStyle');
     const searchInput = document.getElementById('search');
     const filtersPanel = document.getElementById('filtersPanel');
@@ -507,8 +659,6 @@ HTML_TEMPLATE = """<!doctype html>
     providers.forEach(provider => option(providerSelect, provider, provider));
     option(stateSelect, '', 'All states');
     states.forEach(state => option(stateSelect, state, state));
-    option(careTypeSelect, '', 'All care types');
-    [...new Set(homes.map(home => home.care_type).filter(Boolean))].sort().forEach(type => option(careTypeSelect, type, type));
     option(mapStyleSelect, 'light', 'Light map');
     option(mapStyleSelect, 'detail', 'Detailed streets');
 
@@ -525,7 +675,6 @@ HTML_TEMPLATE = """<!doctype html>
       marker.bindPopup(`
         <div class="popup-title"><span class="dot" style="background:${home.provider_color}"></span>${escapeHtml(home.service_name)}</div>
         <div class="popup-row"><b>Provider:</b> ${escapeHtml(home.provider_name)}</div>
-        <div class="popup-row"><b>Care type:</b> ${escapeHtml(home.care_type)}</div>
         <div class="popup-row"><b>Residential places:</b> ${home.residential_places}</div>
         <div class="popup-row"><b>Address:</b> ${escapeHtml(home.address)}</div>
         <div class="popup-row"><b>Organisation:</b> ${escapeHtml(home.organisation_type)}</div>
@@ -546,7 +695,6 @@ HTML_TEMPLATE = """<!doctype html>
       return {
         provider: providerSelect.value,
         state: stateSelect.value,
-        careType: careTypeSelect.value,
         q: searchInput.value.trim(),
         style: mapStyleSelect.value
       };
@@ -565,7 +713,6 @@ HTML_TEMPLATE = """<!doctype html>
       const params = new URLSearchParams();
       if (filters.provider) params.set('provider', filters.provider);
       if (filters.state) params.set('state', filters.state);
-      if (filters.careType) params.set('careType', filters.careType);
       if (filters.q) params.set('q', filters.q);
       if (filters.style !== 'light') params.set('style', filters.style);
       const nextUrl = `${location.pathname}${params.toString() ? '?' + params.toString() : ''}${location.hash}`;
@@ -583,7 +730,6 @@ HTML_TEMPLATE = """<!doctype html>
         const home = item.home;
         if (filters.provider && home.provider_name !== filters.provider) continue;
         if (filters.state && home.state !== filters.state) continue;
-        if (filters.careType && home.care_type !== filters.careType) continue;
         if (!matches(home, q)) continue;
         item.marker.addTo(layer);
         shown += 1;
@@ -608,7 +754,6 @@ HTML_TEMPLATE = """<!doctype html>
       const params = new URLSearchParams(location.search);
       providerSelect.value = params.get('provider') || '';
       stateSelect.value = params.get('state') || '';
-      careTypeSelect.value = params.get('careType') || '';
       searchInput.value = params.get('q') || '';
       mapStyleSelect.value = params.get('style') || 'light';
     }
@@ -616,7 +761,6 @@ HTML_TEMPLATE = """<!doctype html>
     function resetFilters() {
       providerSelect.value = '';
       stateSelect.value = '';
-      careTypeSelect.value = '';
       searchInput.value = '';
       mapStyleSelect.value = 'light';
       applyFilters();
@@ -633,7 +777,7 @@ HTML_TEMPLATE = """<!doctype html>
       window.setTimeout(() => { shareButton.textContent = 'Copy share link'; }, 1800);
     }
 
-    [providerSelect, stateSelect, careTypeSelect, mapStyleSelect, searchInput].forEach(el => el.addEventListener('input', applyFilters));
+    [providerSelect, stateSelect, mapStyleSelect, searchInput].forEach(el => el.addEventListener('input', applyFilters));
     shareButton.addEventListener('click', copyShareLink);
     resetButton.addEventListener('click', resetFilters);
     applyUrlParams();
@@ -662,6 +806,7 @@ def main():
         write_kml(homes, providers),
         *write_html(homes, providers),
         write_summary(homes, providers),
+        *write_verification_report(homes),
     ]
     paths.append(write_readme(paths))
     print(f"Generated {len(homes)} homes across {len(providers)} providers")

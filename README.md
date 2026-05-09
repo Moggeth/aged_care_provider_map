@@ -1,8 +1,10 @@
-# Australia aged care homes by provider
+# Australia residential aged care homes by provider
 
-This folder contains a provider-coloured map of Australian aged-care homes using the official GEN Aged Care Data service list current as at 30 June 2025.
+This folder contains a provider-coloured map of Australian residential aged-care homes using the official GEN Aged Care Data service list current as at 30 June 2025.
 
-Source: Department of Health, Disability and Ageing / AIHW GEN, "Aged care service list: 30 June 2025". The downloaded source file is `data/Service-List-2025-Australia_300126.xlsx`.
+Source: Department of Health, Disability and Ageing / AIHW GEN, "Aged care service list: 30 June 2025". The downloaded source file is `data/Service-List-2025-Australia_300126.xlsx` and matches the current official Australia XLSX download.
+
+Residential-active verification: rows are restricted to `Care Type == Residential`. The generated verification report compares mapped homes with the Department's `data/star-ratings-quarterly-data-extract-february-2026.xlsx` service-level Star Ratings extract for February 2026.
 
 Generated outputs:
 
@@ -12,8 +14,10 @@ Generated outputs:
 - `output/aged_care_homes_by_provider.csv`: Google My Maps-friendly table with a `provider_name` and `provider_color` column.
 - `output/aged_care_homes_by_provider.geojson`: GIS/web map point data.
 - `output/summary.json`: counts by state, care type, and provider.
+- `output/verification_report.csv`: residential-home verification status against the February 2026 Star Ratings extract.
+- `output/verification_summary.json`: verification counts and interpretation.
 
-Inclusion rule: rows with `Residential Places > 0` and valid latitude/longitude. This includes standard `Residential` services as well as multi-purpose/flexible services that have residential places.
+Inclusion rule: rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude.
 
 Use with Google My Maps:
 

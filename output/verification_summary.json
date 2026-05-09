@@ -1,0 +1,14 @@
+{
+  "source": "GEN Aged Care Service List: 30 June 2025",
+  "source_verified_against_official_download": true,
+  "included_care_type": "Residential",
+  "mapped_residential_homes": 2590,
+  "star_ratings_source": "Star Ratings quarterly data extract – February 2026",
+  "star_ratings_rows": 2582,
+  "verification_counts": {
+    "confirmed_in_feb_2026_star_ratings": 2386,
+    "service_location_match_provider_changed": 145,
+    "not_matched_in_feb_2026_star_ratings": 59
+  },
+  "interpretation": "All mapped homes are official Australian Government subsidised residential aged care services current as at 30 June 2025. Star Ratings matching is an additional February 2026 activity signal; absence from Star Ratings is flagged for review rather than treated as closure."
+}

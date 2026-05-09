@@ -1,25 +1,23 @@
 {
   "source": "GEN Aged Care Data / Department of Health, Disability and Ageing, Aged care service list: 30 June 2025",
   "source_file": "Service-List-2025-Australia_300126.xlsx",
-  "generated_home_count": 2798,
-  "provider_count": 744,
-  "total_residential_places": 228259,
-  "median_residential_places": 78.0,
+  "included_care_type": "Residential",
+  "generated_home_count": 2590,
+  "provider_count": 709,
+  "total_residential_places": 224493,
+  "median_residential_places": 82.0,
   "care_type_counts": {
-    "Innovative Pool": 1,
-    "Multi-Purpose Service": 183,
-    "National Aboriginal and Torres Strait Islander Aged Care Program": 24,
     "Residential": 2590
   },
   "state_counts": {
     "ACT": 27,
-    "NSW": 886,
-    "NT": 19,
-    "QLD": 499,
-    "SA": 264,
-    "TAS": 68,
-    "VIC": 746,
-    "WA": 289
+    "NSW": 817,
+    "NT": 9,
+    "QLD": 457,
+    "SA": 233,
+    "TAS": 65,
+    "VIC": 733,
+    "WA": 249
   },
   "top_20_providers": [
     [
@@ -51,10 +49,6 @@
       52
     ],
     [
-      "Queensland Health",
-      52
-    ],
-    [
       "Regis Aged Care Pty Ltd",
       51
     ],
@@ -65,10 +59,6 @@
     [
       "Catholic Healthcare Limited",
       41
-    ],
-    [
-      "Country Health Service",
-      38
     ],
     [
       "BaptistCare NSW & ACT",
@@ -87,10 +77,6 @@
       27
     ],
     [
-      "Western NSW Local Health District",
-      25
-    ],
-    [
       "RSL LifeCare Limited",
       25
     ],
@@ -99,8 +85,20 @@
       25
     ],
     [
+      "Anglican Community Services",
+      23
+    ],
+    [
       "Churches of Christ in Queensland",
-      24
+      23
+    ],
+    [
+      "Royal Freemasons' Benevolent Institution",
+      22
+    ],
+    [
+      "The Frank Whiddon Masonic Homes of New South Wales",
+      22
     ]
   ]
 }
