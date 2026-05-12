@@ -819,7 +819,7 @@ HTML_TEMPLATE = """<!doctype html>
     };
 	    let activeBaseLayer = baseLayers.light.addTo(map);
 	    let lastRegion = null;
-	    map.fitBounds(bounds, { padding: [32, 32], animate: false });
+	    map.fitBounds(bounds, { paddingTopLeft: [470, 32], paddingBottomRight: [32, 32], animate: false });
 
     function option(select, value, text) {
       const item = document.createElement('option');
@@ -936,7 +936,7 @@ HTML_TEMPLATE = """<!doctype html>
 	      }
 	      visibleCount.textContent = `${shown.toLocaleString()} visible homes, ${places.toLocaleString()} places/beds`;
 	      if (filters.region !== lastRegion && shownBounds.length) {
-	        map.fitBounds(shownBounds, { padding: [32, 32], animate: false });
+	        map.fitBounds(shownBounds, { paddingTopLeft: [470, 32], paddingBottomRight: [32, 32], animate: false });
 	        lastRegion = filters.region;
 	      }
 	      renderLegend(visibleProviders);
@@ -960,7 +960,7 @@ HTML_TEMPLATE = """<!doctype html>
 
 	    function applyUrlParams() {
 	      const params = new URLSearchParams(location.search);
-	      regionSelect.value = params.get('region') || 'Australia';
+	      regionSelect.value = params.get('region') || '';
 	      providerSelect.value = params.get('provider') || '';
       stateSelect.value = params.get('state') || '';
       searchInput.value = params.get('q') || '';
@@ -968,7 +968,7 @@ HTML_TEMPLATE = """<!doctype html>
     }
 
 	    function resetFilters() {
-	      regionSelect.value = 'Australia';
+	      regionSelect.value = '';
 	      providerSelect.value = '';
       stateSelect.value = '';
       searchInput.value = '';
