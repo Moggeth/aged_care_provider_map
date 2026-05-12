@@ -18,6 +18,8 @@ Generated outputs:
 - `output/summary.json`: counts by state, care type, and provider.
 - `output/verification_report.csv`: residential-home verification status against the February 2026 Star Ratings extract.
 - `output/verification_summary.json`: verification counts and interpretation.
+- `output/source_validation_report.csv`: row-level validation evidence for every mapped home.
+- `output/source_validation_summary.json`: source metadata, row counts, checksums, and California/San Francisco validation totals.
 
 Inclusion rule: Australian rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude; California CMS rows with `State == CA` and valid latitude/longitude.
 

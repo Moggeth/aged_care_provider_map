@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import csv
+import hashlib
 import html
 import json
 import math
@@ -15,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_XLSX = ROOT / "data" / "Service-List-2025-Australia_300126.xlsx"
 STAR_RATINGS_XLSX = ROOT / "data" / "star-ratings-quarterly-data-extract-february-2026.xlsx"
 CMS_NURSING_HOME_CSV = ROOT / "data" / "NH_ProviderInfo_Apr2026.csv"
+CMS_NURSING_HOME_METADATA = ROOT / "data" / "cms_provider_information_metadata.json"
 OUTPUT = ROOT / "output"
 
 NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -29,6 +31,12 @@ SF_BAY_AREA_COUNTIES = {
     "Santa Clara",
     "Solano",
     "Sonoma",
+}
+CALIFORNIA_BOUNDS = {
+    "min_latitude": 32.0,
+    "max_latitude": 42.5,
+    "min_longitude": -125.0,
+    "max_longitude": -114.0,
 }
 
 
@@ -129,6 +137,14 @@ def to_float(value):
 def to_int(value):
     num = to_float(value)
     return int(num) if num is not None else 0
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def slug(value):
@@ -306,6 +322,19 @@ def load_california_homes():
     return homes
 
 
+def load_cms_provider_rows():
+    if not CMS_NURSING_HOME_CSV.exists():
+        return []
+    with CMS_NURSING_HOME_CSV.open(newline="", encoding="utf-8-sig") as handle:
+        return list(csv.DictReader(handle))
+
+
+def load_cms_metadata():
+    if not CMS_NURSING_HOME_METADATA.exists():
+        return {}
+    return json.loads(CMS_NURSING_HOME_METADATA.read_text(encoding="utf-8"))
+
+
 def load_homes():
     return load_australian_homes() + load_california_homes()
 
@@ -425,6 +454,150 @@ def write_verification_report(homes):
     }
     summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
     return path, summary_path
+
+
+def california_coordinate_in_bounds(row):
+    lat = to_float(row.get("Latitude"))
+    lon = to_float(row.get("Longitude"))
+    if lat is None or lon is None:
+        return False
+    return (
+        CALIFORNIA_BOUNDS["min_latitude"] <= lat <= CALIFORNIA_BOUNDS["max_latitude"]
+        and CALIFORNIA_BOUNDS["min_longitude"] <= lon <= CALIFORNIA_BOUNDS["max_longitude"]
+    )
+
+
+def write_source_validation_report(homes):
+    report_path = OUTPUT / "source_validation_report.csv"
+    summary_path = OUTPUT / "source_validation_summary.json"
+
+    australian_homes = [home for home in homes if home.get("country") == "Australia"]
+    california_homes = [home for home in homes if home.get("country") == "United States" and home.get("state") == "CA"]
+    ratings, au_counts, exact_rating_keys, service_location_rating_keys = verification_counts(australian_homes)
+    cms_rows = load_cms_provider_rows()
+    cms_metadata = load_cms_metadata()
+    cms_ca_rows = [row for row in cms_rows if row.get("State") == "CA"]
+    cms_ca_ccns = {row.get("CMS Certification Number (CCN)") for row in cms_ca_rows}
+    mapped_ca_ccns = {home.get("cms_certification_number") for home in california_homes}
+    sf_city_rows = [row for row in cms_ca_rows if row.get("City/Town", "").casefold() == "san francisco"]
+    sf_county_rows = [row for row in cms_ca_rows if row.get("County/Parish") == "San Francisco"]
+    bay_area_rows = [row for row in cms_ca_rows if row.get("County/Parish") in SF_BAY_AREA_COUNTIES]
+
+    fields = [
+        "country",
+        "region",
+        "service_name",
+        "provider_name",
+        "state",
+        "city_or_suburb",
+        "county_or_lga",
+        "source_identifier",
+        "validation_status",
+        "official_source",
+        "source_date_or_release",
+        "coordinates_status",
+        "notes",
+    ]
+    validation_counts = Counter()
+    with report_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for home in homes:
+            if home.get("country") == "Australia":
+                status, notes = verification_status_for_home(home, exact_rating_keys, service_location_rating_keys)
+                official_source = "GEN Aged Care Service List"
+                source_date = "Current as at 30 June 2025"
+                identifier = ""
+            elif home.get("country") == "United States" and home.get("state") == "CA":
+                status = "confirmed_currently_active_in_cms_provider_information_apr_2026"
+                notes = "CCN is present in CMS Provider Information dataset 4pq5-n9py."
+                if not home.get("residential_places"):
+                    notes += " CMS did not supply Number of Certified Beds for this row."
+                official_source = "CMS Provider Information"
+                source_date = "Released 2026-04-29; next update 2026-05-27"
+                identifier = home.get("cms_certification_number")
+            else:
+                status = "unsupported_region"
+                notes = "Region is outside the configured validation sources."
+                official_source = home.get("source_dataset")
+                source_date = ""
+                identifier = ""
+
+            validation_counts[status] += 1
+            writer.writerow(
+                {
+                    "country": home.get("country"),
+                    "region": source_region(home),
+                    "service_name": home.get("service_name"),
+                    "provider_name": home.get("provider_name"),
+                    "state": home.get("state"),
+                    "city_or_suburb": home.get("suburb"),
+                    "county_or_lga": home.get("county") or home.get("lga"),
+                    "source_identifier": identifier,
+                    "validation_status": status,
+                    "official_source": official_source,
+                    "source_date_or_release": source_date,
+                    "coordinates_status": "valid latitude/longitude",
+                    "notes": notes,
+                }
+            )
+
+    ca_duplicate_ccns = [
+        ccn for ccn, count in Counter(row.get("CMS Certification Number (CCN)") for row in cms_ca_rows).items() if count > 1
+    ]
+    california_summary = {
+        "official_source": "CMS Provider Information",
+        "dataset_id": cms_metadata.get("identifier", "4pq5-n9py"),
+        "dataset_title": cms_metadata.get("title", "Provider Information"),
+        "dataset_description": cms_metadata.get("description", ""),
+        "landing_page": cms_metadata.get("landingPage", "https://data.cms.gov/provider-data/dataset/4pq5-n9py"),
+        "download_url": (cms_metadata.get("distribution") or [{}])[0].get("downloadURL", ""),
+        "released": cms_metadata.get("released"),
+        "modified": cms_metadata.get("modified"),
+        "next_update_date": cms_metadata.get("nextUpdateDate"),
+        "source_file": CMS_NURSING_HOME_CSV.name,
+        "source_file_sha256": file_sha256(CMS_NURSING_HOME_CSV) if CMS_NURSING_HOME_CSV.exists() else "",
+        "all_california_source_rows_mapped": cms_ca_ccns == mapped_ca_ccns,
+        "cms_total_rows": len(cms_rows),
+        "cms_california_rows": len(cms_ca_rows),
+        "mapped_california_rows": len(california_homes),
+        "unique_california_ccns": len(cms_ca_ccns),
+        "duplicate_california_ccns": ca_duplicate_ccns,
+        "california_rows_missing_coordinates": sum(
+            1 for row in cms_ca_rows if not row.get("Latitude") or not row.get("Longitude")
+        ),
+        "california_rows_outside_coordinate_bounds": sum(
+            1 for row in cms_ca_rows if row.get("Latitude") and row.get("Longitude") and not california_coordinate_in_bounds(row)
+        ),
+        "california_rows_missing_certified_beds": sum(1 for row in cms_ca_rows if not row.get("Number of Certified Beds")),
+        "san_francisco_city_rows": len(sf_city_rows),
+        "san_francisco_county_rows": len(sf_county_rows),
+        "san_francisco_bay_area_rows": len(bay_area_rows),
+        "bay_area_counties": sorted(SF_BAY_AREA_COUNTIES),
+    }
+    australia_summary = {
+        "official_source": "GEN Aged Care Service List",
+        "source_file": SOURCE_XLSX.name,
+        "source_file_sha256": file_sha256(SOURCE_XLSX) if SOURCE_XLSX.exists() else "",
+        "mapped_australian_rows": len(australian_homes),
+        "star_ratings_source_file": STAR_RATINGS_XLSX.name,
+        "star_ratings_rows": len(ratings),
+        "star_ratings_validation_counts": dict(au_counts),
+    }
+    summary = {
+        "official_sources_only": True,
+        "generated_home_count": len(homes),
+        "validation_counts": dict(validation_counts),
+        "australia": australia_summary,
+        "california": california_summary,
+        "interpretation": (
+            "California rows are validated against the official CMS Provider Information file, which CMS describes "
+            "as currently active nursing homes. Australian rows are validated against the official GEN service list "
+            "and cross-checked against the February 2026 Star Ratings extract."
+        ),
+    }
+    summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    return report_path, summary_path
 
 
 def write_csv(homes):
@@ -640,6 +813,8 @@ Generated outputs:
 - `output/summary.json`: counts by state, care type, and provider.
 - `output/verification_report.csv`: residential-home verification status against the February 2026 Star Ratings extract.
 - `output/verification_summary.json`: verification counts and interpretation.
+- `output/source_validation_report.csv`: row-level validation evidence for every mapped home.
+- `output/source_validation_summary.json`: source metadata, row counts, checksums, and California/San Francisco validation totals.
 
 Inclusion rule: Australian rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude; California CMS rows with `State == CA` and valid latitude/longitude.
 
@@ -1016,6 +1191,7 @@ def main():
         *write_html(homes, providers),
         write_summary(homes, providers),
         *write_verification_report(homes),
+        *write_source_validation_report(homes),
     ]
     paths.append(write_readme(paths))
     print(f"Generated {len(homes)} homes across {len(providers)} providers")

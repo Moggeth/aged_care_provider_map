@@ -1,0 +1,60 @@
+{
+  "official_sources_only": true,
+  "generated_home_count": 3752,
+  "validation_counts": {
+    "confirmed_in_feb_2026_star_ratings": 2386,
+    "service_location_match_provider_changed": 145,
+    "not_matched_in_feb_2026_star_ratings": 59,
+    "confirmed_currently_active_in_cms_provider_information_apr_2026": 1162
+  },
+  "australia": {
+    "official_source": "GEN Aged Care Service List",
+    "source_file": "Service-List-2025-Australia_300126.xlsx",
+    "source_file_sha256": "0e71af6a3e43091553f4c8d2bf4d95336dfcace620079f931eb6e5f2b3c08f07",
+    "mapped_australian_rows": 2590,
+    "star_ratings_source_file": "star-ratings-quarterly-data-extract-february-2026.xlsx",
+    "star_ratings_rows": 2582,
+    "star_ratings_validation_counts": {
+      "confirmed_in_feb_2026_star_ratings": 2386,
+      "service_location_match_provider_changed": 145,
+      "not_matched_in_feb_2026_star_ratings": 59
+    }
+  },
+  "california": {
+    "official_source": "CMS Provider Information",
+    "dataset_id": "4pq5-n9py",
+    "dataset_title": "Provider Information",
+    "dataset_description": "General information on currently active nursing homes, including number of certified beds, quality measure scores, staffing and other information used in the Five-Star Rating System. Data are presented as one row per nursing home.",
+    "landing_page": "https://data.cms.gov/provider-data/dataset/4pq5-n9py",
+    "download_url": "https://data.cms.gov/provider-data/sites/default/files/resources/48b0263f73f1f8741101da989557a8a9_1776435355/NH_ProviderInfo_Apr2026.csv",
+    "released": "2026-04-29",
+    "modified": "2026-04-01",
+    "next_update_date": "2026-05-27",
+    "source_file": "NH_ProviderInfo_Apr2026.csv",
+    "source_file_sha256": "1fbd7d2a887c50172cb4ca6e88405f24546aa12f576f81ce06cea305abb2ce2e",
+    "all_california_source_rows_mapped": true,
+    "cms_total_rows": 14699,
+    "cms_california_rows": 1162,
+    "mapped_california_rows": 1162,
+    "unique_california_ccns": 1162,
+    "duplicate_california_ccns": [],
+    "california_rows_missing_coordinates": 0,
+    "california_rows_outside_coordinate_bounds": 0,
+    "california_rows_missing_certified_beds": 1,
+    "san_francisco_city_rows": 18,
+    "san_francisco_county_rows": 18,
+    "san_francisco_bay_area_rows": 224,
+    "bay_area_counties": [
+      "Alameda",
+      "Contra Costa",
+      "Marin",
+      "Napa",
+      "San Francisco",
+      "San Mateo",
+      "Santa Clara",
+      "Solano",
+      "Sonoma"
+    ]
+  },
+  "interpretation": "California rows are validated against the official CMS Provider Information file, which CMS describes as currently active nursing homes. Australian rows are validated against the official GEN service list and cross-checked against the February 2026 Star Ratings extract."
+}
