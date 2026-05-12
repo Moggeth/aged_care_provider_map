@@ -1,16 +1,33 @@
 {
-  "source": "GEN Aged Care Data / Department of Health, Disability and Ageing, Aged care service list: 30 June 2025",
-  "source_file": "Service-List-2025-Australia_300126.xlsx",
-  "included_care_type": "Residential",
-  "generated_home_count": 2590,
-  "provider_count": 709,
-  "total_residential_places": 224493,
-  "median_residential_places": 82.0,
+  "sources": [
+    "GEN Aged Care Data / Department of Health, Disability and Ageing, Aged care service list: 30 June 2025",
+    "CMS Provider Information, Nursing homes including rehab services: April 2026"
+  ],
+  "source_files": [
+    "Service-List-2025-Australia_300126.xlsx",
+    "NH_ProviderInfo_Apr2026.csv"
+  ],
+  "included_care_type": "Australia Residential; California CMS currently active nursing homes",
+  "generated_home_count": 3752,
+  "provider_count": 1111,
+  "total_residential_places": 339485,
+  "median_residential_places": 88.0,
+  "country_counts": {
+    "Australia": 2590,
+    "United States": 1162
+  },
+  "region_counts": {
+    "Australia": 2590,
+    "California": 938,
+    "San Francisco Bay Area": 224
+  },
   "care_type_counts": {
+    "Nursing home": 1162,
     "Residential": 2590
   },
   "state_counts": {
     "ACT": 27,
+    "CA": 1162,
     "NSW": 817,
     "NT": 9,
     "QLD": 457,
@@ -25,12 +42,20 @@
       138
     ],
     [
+      "PACS GROUP",
+      132
+    ],
+    [
       "RSL Care RDNS Limited",
       88
     ],
     [
       "Estia Investments Pty Ltd",
       87
+    ],
+    [
+      "THE ENSIGN GROUP",
+      71
     ],
     [
       "The Uniting Church in Australia Property Trust (NSW)",
@@ -57,12 +82,28 @@
       46
     ],
     [
+      "DAVID JOHNSON",
+      45
+    ],
+    [
       "Catholic Healthcare Limited",
       41
     ],
     [
+      "LONGWOOD MANAGEMENT CORPORATION",
+      38
+    ],
+    [
       "BaptistCare NSW & ACT",
       35
+    ],
+    [
+      "ASPEN SKILLED HEALTHCARE",
+      33
+    ],
+    [
+      "CAMBRIDGE HEALTHCARE SERVICES",
+      32
     ],
     [
       "Mercy Aged and Community Care Ltd",
@@ -75,30 +116,6 @@
     [
       "Southern Cross Care (NSW & ACT) Limited",
       27
-    ],
-    [
-      "RSL LifeCare Limited",
-      25
-    ],
-    [
-      "St Vincent's Care Services Ltd",
-      25
-    ],
-    [
-      "Anglican Community Services",
-      23
-    ],
-    [
-      "Churches of Christ in Queensland",
-      23
-    ],
-    [
-      "Royal Freemasons' Benevolent Institution",
-      22
-    ],
-    [
-      "The Frank Whiddon Masonic Homes of New South Wales",
-      22
     ]
   ]
 }

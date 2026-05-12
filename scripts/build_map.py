@@ -14,10 +14,22 @@ from zipfile import ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_XLSX = ROOT / "data" / "Service-List-2025-Australia_300126.xlsx"
 STAR_RATINGS_XLSX = ROOT / "data" / "star-ratings-quarterly-data-extract-february-2026.xlsx"
+CMS_NURSING_HOME_CSV = ROOT / "data" / "NH_ProviderInfo_Apr2026.csv"
 OUTPUT = ROOT / "output"
 
 NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 HEADERS_ROW = 3
+SF_BAY_AREA_COUNTIES = {
+    "Alameda",
+    "Contra Costa",
+    "Marin",
+    "Napa",
+    "San Francisco",
+    "San Mateo",
+    "Santa Clara",
+    "Solano",
+    "Sonoma",
+}
 
 
 def column_index(cell_ref):
@@ -172,7 +184,13 @@ def kml_color(hex_color):
     return f"ff{bb}{gg}{rr}"
 
 
-def load_homes():
+def source_region(home):
+    if home.get("country") == "United States":
+        return "San Francisco Bay Area" if home.get("metro_area") == "San Francisco Bay Area" else "California"
+    return "Australia"
+
+
+def load_australian_homes():
     homes = []
     for row in read_xlsx(SOURCE_XLSX):
         if row.get("Care Type") != "Residential":
@@ -184,6 +202,8 @@ def load_homes():
             continue
         provider = row.get("Provider Name") or "Unknown provider"
         home = {
+            "source_region": "Australia",
+            "country": "Australia",
             "service_name": row.get("Service Name"),
             "provider_name": provider,
             "care_type": row.get("Care Type"),
@@ -205,12 +225,89 @@ def load_homes():
             "remoteness": row.get("ABS Remoteness"),
             "acpr": row.get("2018 Aged Care Planning Region (ACPR)"),
             "lga": row.get("2023 LGA Name"),
+            "county": "",
+            "metro_area": "",
+            "source_dataset": "GEN Aged Care Service List: 30 June 2025",
+            "source_status": "Official service list current as at 30 June 2025",
+            "cms_certification_number": "",
+            "legal_business_name": "",
+            "chain_name": "",
+            "overall_rating": "",
+            "average_residents_per_day": "",
             "latitude": lat,
             "longitude": lon,
             "funding_2024_25": to_float(row.get("2024-25 Australian Government Funding")),
         }
         homes.append(home)
     return homes
+
+
+def load_california_homes():
+    if not CMS_NURSING_HOME_CSV.exists():
+        return []
+
+    homes = []
+    with CMS_NURSING_HOME_CSV.open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("State") != "CA":
+                continue
+            beds = to_int(row.get("Number of Certified Beds"))
+            lat = to_float(row.get("Latitude"))
+            lon = to_float(row.get("Longitude"))
+            if lat is None or lon is None:
+                continue
+            chain = row.get("Chain Name")
+            legal = row.get("Legal Business Name")
+            if legal == "Legal Business Name Not Available":
+                legal = ""
+            provider = chain or legal or row.get("Provider Name") or "Unknown provider"
+            county = row.get("County/Parish")
+            metro = "San Francisco Bay Area" if county in SF_BAY_AREA_COUNTIES else ""
+            address = ", ".join(
+                part
+                for part in [
+                    row.get("Provider Address"),
+                    row.get("City/Town"),
+                    row.get("State"),
+                    row.get("ZIP Code"),
+                    "USA",
+                ]
+                if part
+            )
+            home = {
+                "source_region": metro or "California",
+                "country": "United States",
+                "service_name": row.get("Provider Name"),
+                "provider_name": provider,
+                "care_type": "Nursing home",
+                "residential_places": beds,
+                "address": address,
+                "state": row.get("State"),
+                "suburb": row.get("City/Town"),
+                "postcode": row.get("ZIP Code"),
+                "organisation_type": row.get("Ownership Type"),
+                "remoteness": "Urban" if row.get("Urban") == "Y" else "Non-urban",
+                "acpr": "",
+                "lga": county,
+                "county": county,
+                "metro_area": metro,
+                "source_dataset": "CMS Provider Information: April 2026",
+                "source_status": "CMS describes this dataset as currently active nursing homes",
+                "cms_certification_number": row.get("CMS Certification Number (CCN)"),
+                "legal_business_name": legal,
+                "chain_name": chain,
+                "overall_rating": row.get("Overall Rating"),
+                "average_residents_per_day": row.get("Average Number of Residents per Day"),
+                "latitude": lat,
+                "longitude": lon,
+                "funding_2024_25": "",
+            }
+            homes.append(home)
+    return homes
+
+
+def load_homes():
+    return load_australian_homes() + load_california_homes()
 
 
 def load_star_ratings():
@@ -262,6 +359,7 @@ def verification_status_for_home(home, exact_rating_keys, service_location_ratin
 
 
 def verification_counts(homes):
+    homes = [home for home in homes if home.get("country") == "Australia"]
     ratings = load_star_ratings()
     exact_rating_keys = {verification_keys_for_rating(row)[0] for row in ratings}
     service_location_rating_keys = {verification_keys_for_rating(row)[1] for row in ratings}
@@ -275,8 +373,10 @@ def verification_counts(homes):
 def write_verification_report(homes):
     path = OUTPUT / "verification_report.csv"
     summary_path = OUTPUT / "verification_summary.json"
+    homes = [home for home in homes if home.get("country") == "Australia"]
     ratings, counts, exact_rating_keys, service_location_rating_keys = verification_counts(homes)
     fields = [
+        "country",
         "service_name",
         "provider_name",
         "state",
@@ -296,6 +396,7 @@ def write_verification_report(homes):
             writer.writerow(
                 {
                     "service_name": home["service_name"],
+                    "country": home["country"],
                     "provider_name": home["provider_name"],
                     "state": home["state"],
                     "suburb": home["suburb"],
@@ -329,6 +430,8 @@ def write_verification_report(homes):
 def write_csv(homes):
     path = OUTPUT / "aged_care_homes_by_provider.csv"
     fields = [
+        "source_region",
+        "country",
         "service_name",
         "provider_name",
         "provider_color",
@@ -342,6 +445,15 @@ def write_csv(homes):
         "remoteness",
         "acpr",
         "lga",
+        "county",
+        "metro_area",
+        "source_dataset",
+        "source_status",
+        "cms_certification_number",
+        "legal_business_name",
+        "chain_name",
+        "overall_rating",
+        "average_residents_per_day",
         "latitude",
         "longitude",
         "funding_2024_25",
@@ -377,7 +489,7 @@ def write_kml(homes, providers):
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<kml xmlns="http://www.opengis.net/kml/2.2">',
         "<Document>",
-        "<name>Australia residential aged care homes by provider</name>",
+        "<name>Residential care homes by provider</name>",
     ]
     for provider in providers:
         color = kml_color(provider_color(provider, providers))
@@ -400,10 +512,12 @@ def write_kml(homes, providers):
         for home in provider_homes:
             desc = (
                 f"<b>Provider:</b> {html.escape(home['provider_name'])}<br>"
-                f"<b>Residential places:</b> {home['residential_places']}<br>"
+                f"<b>Country:</b> {html.escape(home['country'])}<br>"
+                f"<b>Region:</b> {html.escape(source_region(home))}<br>"
+                f"<b>Certified places/beds:</b> {home['residential_places']}<br>"
                 f"<b>Address:</b> {html.escape(home['address'])}<br>"
                 f"<b>Organisation type:</b> {html.escape(home['organisation_type'])}<br>"
-                f"<b>Remoteness:</b> {html.escape(home['remoteness'])}"
+                f"<b>Source:</b> {html.escape(home['source_dataset'])}"
             )
             chunks.extend(
                 [
@@ -437,9 +551,13 @@ def write_html(homes, providers):
     path = OUTPUT / "aged_care_homes_by_provider.html"
     docs_path = ROOT / "docs" / "index.html"
     states = sorted({home["state"] for home in homes if home["state"]})
+    regions = ["Australia", "California", "San Francisco Bay Area"]
     provider_counts = Counter(home["provider_name"] for home in homes)
     top_providers = provider_counts.most_common(20)
     _ratings, verification, _exact_rating_keys, _service_location_rating_keys = verification_counts(homes)
+    country_counts = Counter(home["country"] for home in homes)
+    california_count = sum(1 for home in homes if home.get("country") == "United States" and home.get("state") == "CA")
+    bay_area_count = sum(1 for home in homes if home.get("metro_area") == "San Francisco Bay Area")
     lats = [home["latitude"] for home in homes]
     lons = [home["longitude"] for home in homes]
     data = [
@@ -453,8 +571,12 @@ def write_html(homes, providers):
     html_text = HTML_TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False))
     html_text = html_text.replace("__PROVIDERS__", json.dumps(sorted(providers, key=sort_key), ensure_ascii=False))
     html_text = html_text.replace("__STATES__", json.dumps(states, ensure_ascii=False))
+    html_text = html_text.replace("__REGIONS__", json.dumps(regions, ensure_ascii=False))
     html_text = html_text.replace("__COUNT__", str(len(homes)))
     html_text = html_text.replace("__PROVIDER_COUNT__", str(len(providers)))
+    html_text = html_text.replace("__AUSTRALIA_COUNT__", str(country_counts["Australia"]))
+    html_text = html_text.replace("__CALIFORNIA_COUNT__", str(california_count))
+    html_text = html_text.replace("__BAY_AREA_COUNT__", str(bay_area_count))
     html_text = html_text.replace("__VERIFIED_EXACT__", str(verification["confirmed_in_feb_2026_star_ratings"]))
     html_text = html_text.replace("__VERIFIED_PROVIDER_CHANGED__", str(verification["service_location_match_provider_changed"]))
     html_text = html_text.replace("__VERIFIED_UNMATCHED__", str(verification["not_matched_in_feb_2026_star_ratings"]))
@@ -470,16 +592,23 @@ def write_html(homes, providers):
 def write_summary(homes, providers):
     states = Counter(home["state"] for home in homes)
     care_types = Counter(home["care_type"] for home in homes)
+    countries = Counter(home["country"] for home in homes)
+    regions = Counter(source_region(home) for home in homes)
     places = [home["residential_places"] for home in homes]
     path = OUTPUT / "summary.json"
     summary = {
-        "source": "GEN Aged Care Data / Department of Health, Disability and Ageing, Aged care service list: 30 June 2025",
-        "source_file": SOURCE_XLSX.name,
-        "included_care_type": "Residential",
+        "sources": [
+            "GEN Aged Care Data / Department of Health, Disability and Ageing, Aged care service list: 30 June 2025",
+            "CMS Provider Information, Nursing homes including rehab services: April 2026",
+        ],
+        "source_files": [SOURCE_XLSX.name, CMS_NURSING_HOME_CSV.name],
+        "included_care_type": "Australia Residential; California CMS currently active nursing homes",
         "generated_home_count": len(homes),
         "provider_count": len(providers),
         "total_residential_places": sum(places),
         "median_residential_places": statistics.median(places),
+        "country_counts": dict(sorted(countries.items())),
+        "region_counts": dict(sorted(regions.items())),
         "care_type_counts": dict(sorted(care_types.items())),
         "state_counts": dict(sorted(states.items())),
         "top_20_providers": Counter(home["provider_name"] for home in homes).most_common(20),
@@ -491,13 +620,15 @@ def write_summary(homes, providers):
 def write_readme(paths):
     path = ROOT / "README.md"
     path.write_text(
-        f"""# Australia residential aged care homes by provider
+        f"""# Residential care homes by provider
 
-This folder contains a provider-coloured map of Australian residential aged-care homes using the official GEN Aged Care Data service list current as at 30 June 2025.
+This folder contains a provider-coloured map of Australian residential aged-care homes and California nursing homes using official government source data.
 
-Source: Department of Health, Disability and Ageing / AIHW GEN, "Aged care service list: 30 June 2025". The downloaded source file is `data/{SOURCE_XLSX.name}` and matches the current official Australia XLSX download.
+Australian source: Department of Health, Disability and Ageing / AIHW GEN, "Aged care service list: 30 June 2025". The downloaded source file is `data/{SOURCE_XLSX.name}` and matches the current official Australia XLSX download.
 
-Residential-active verification: rows are restricted to `Care Type == Residential`. The generated verification report compares mapped homes with the Department's `data/{STAR_RATINGS_XLSX.name}` service-level Star Ratings extract for February 2026.
+California source: Centers for Medicare & Medicaid Services (CMS), "Provider Information", Nursing homes including rehab services. The downloaded source file is `data/{CMS_NURSING_HOME_CSV.name}`.
+
+Australian residential-active verification: Australian rows are restricted to `Care Type == Residential`. The generated verification report compares mapped Australian homes with the Department's `data/{STAR_RATINGS_XLSX.name}` service-level Star Ratings extract for February 2026. CMS describes the California Provider Information table as currently active nursing homes.
 
 Generated outputs:
 
@@ -510,7 +641,7 @@ Generated outputs:
 - `output/verification_report.csv`: residential-home verification status against the February 2026 Star Ratings extract.
 - `output/verification_summary.json`: verification counts and interpretation.
 
-Inclusion rule: rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude.
+Inclusion rule: Australian rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude; California CMS rows with `State == CA` and valid latitude/longitude.
 
 Use with Google My Maps:
 
@@ -546,10 +677,10 @@ HTML_TEMPLATE = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Australia Residential Aged Care Homes by Provider</title>
-  <meta name="description" content="Interactive map of Australian residential aged-care homes by provider using GEN service list data current as at 30 June 2025.">
-  <meta property="og:title" content="Australia residential aged care homes by provider">
-  <meta property="og:description" content="Search, filter and share an interactive provider-coloured map of Australian residential aged-care homes.">
+  <title>Residential Care Homes by Provider</title>
+  <meta name="description" content="Interactive map of Australian residential aged-care homes and California nursing homes by provider using official GEN and CMS data.">
+  <meta property="og:title" content="Residential care homes by provider">
+  <meta property="og:description" content="Search, filter and share an interactive provider-coloured map of official Australian and California residential care data.">
   <meta property="og:type" content="website">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
@@ -612,16 +743,17 @@ HTML_TEMPLATE = """<!doctype html>
   <div id="map"></div>
   <section class="panel">
     <header>
-      <h1>Residential aged care homes</h1>
-      <div class="meta"><span class="count-pill">__COUNT__ homes</span><span>__PROVIDER_COUNT__ providers</span><span>Source: GEN 30 Jun 2025</span></div>
+	      <h1>Residential care homes</h1>
+	      <div class="meta"><span class="count-pill">__COUNT__ homes</span><span>__PROVIDER_COUNT__ providers</span><span>Official GEN + CMS data</span></div>
     </header>
     <div class="controls">
       <label>Search<input id="search" type="search" placeholder="Service, provider, suburb, address"></label>
       <details id="filtersPanel" class="advanced" open>
-        <summary>Filters and sharing</summary>
-        <div class="advanced-content">
-          <label>Provider<select id="provider"></select></label>
-          <label>State<select id="state"></select></label>
+	        <summary>Filters and sharing</summary>
+	        <div class="advanced-content">
+	          <label>Region<select id="region"></select></label>
+	          <label>Provider<select id="provider"></select></label>
+	          <label>State / territory<select id="state"></select></label>
           <label>Map style<select id="mapStyle"></select></label>
           <div class="actions">
             <button id="shareButton" type="button">Copy share link</button>
@@ -637,22 +769,25 @@ HTML_TEMPLATE = """<!doctype html>
     <details class="about">
       <summary>About this data</summary>
       <div class="about-content">
-        <p>This map shows Australian residential aged care homes from the official GEN Aged Care Data service list, published by the Department of Health, Disability and Ageing.</p>
-        <p>Source: <a href="https://www.gen-agedcaredata.gov.au/resources/access-data/2025/october/aged-care-service-list-30-june-2025" target="_blank" rel="noopener">Aged care service list: 30 June 2025</a>. The source page says the files are current as at 30 June 2025 and updated annually.</p>
-        <p>Included rows have <b>Care Type</b> equal to <b>Residential</b>, residential places above zero, and valid latitude/longitude. This version maps __COUNT__ homes across __PROVIDER_COUNT__ providers.</p>
-        <p>Cross-check: <a href="https://www.health.gov.au/resources/publications/star-ratings-quarterly-data-extract-february-2026?language=en" target="_blank" rel="noopener">February 2026 Star Ratings service-level extract</a>. __VERIFIED_EXACT__ homes matched exactly; __VERIFIED_PROVIDER_CHANGED__ matched by service/suburb/state with provider-name differences; __VERIFIED_UNMATCHED__ were not matched and should be manually reviewed.</p>
-        <p>Absence from the Star Ratings extract is not treated as proof that a home has closed.</p>
+	        <p>This map shows Australian residential aged care homes and California nursing homes from official government sources.</p>
+	        <p>Source: <a href="https://www.gen-agedcaredata.gov.au/resources/access-data/2025/october/aged-care-service-list-30-june-2025" target="_blank" rel="noopener">Aged care service list: 30 June 2025</a>. The source page says the files are current as at 30 June 2025 and updated annually.</p>
+	        <p>California source: <a href="https://data.cms.gov/provider-data/dataset/4pq5-n9py" target="_blank" rel="noopener">CMS Provider Information</a>. CMS describes this April 2026 dataset as general information on currently active nursing homes, one row per nursing home.</p>
+	        <p>Included Australian rows have residential places above zero and valid latitude/longitude. Included California rows are CMS currently active nursing homes with valid latitude/longitude; certified beds are shown where CMS supplies them. This version maps __AUSTRALIA_COUNT__ Australian homes, __CALIFORNIA_COUNT__ California homes, and __BAY_AREA_COUNT__ San Francisco Bay Area homes.</p>
+	        <p>Cross-check: <a href="https://www.health.gov.au/resources/publications/star-ratings-quarterly-data-extract-february-2026?language=en" target="_blank" rel="noopener">February 2026 Star Ratings service-level extract</a>. __VERIFIED_EXACT__ homes matched exactly; __VERIFIED_PROVIDER_CHANGED__ matched by service/suburb/state with provider-name differences; __VERIFIED_UNMATCHED__ were not matched and should be manually reviewed.</p>
+	        <p>Absence from the Star Ratings extract is not treated as proof that a home has closed.</p>
       </div>
     </details>
   </section>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const homes = __DATA__;
-    const providers = __PROVIDERS__;
-    const states = __STATES__;
-    const topProviders = __TOP_PROVIDERS__;
+	    const homes = __DATA__;
+	    const providers = __PROVIDERS__;
+	    const states = __STATES__;
+	    const regions = __REGIONS__;
+	    const topProviders = __TOP_PROVIDERS__;
     const bounds = __BOUNDS__;
-    const providerSelect = document.getElementById('provider');
+	    const regionSelect = document.getElementById('region');
+	    const providerSelect = document.getElementById('provider');
     const stateSelect = document.getElementById('state');
     const mapStyleSelect = document.getElementById('mapStyle');
     const searchInput = document.getElementById('search');
@@ -662,7 +797,13 @@ HTML_TEMPLATE = """<!doctype html>
     const visibleCount = document.getElementById('visibleCount');
     const legend = document.getElementById('legend');
 
-    const map = L.map('map', { preferCanvas: true, zoomControl: false });
+	    const map = L.map('map', {
+	      preferCanvas: true,
+	      zoomControl: false,
+	      zoomAnimation: false,
+	      fadeAnimation: false,
+	      markerZoomAnimation: false
+	    });
     map.attributionControl.setPosition('topleft');
     map.attributionControl.setPrefix(false);
     L.control.zoom({ position: 'topright' }).addTo(map);
@@ -676,8 +817,9 @@ HTML_TEMPLATE = """<!doctype html>
         attribution: '&copy; OpenStreetMap contributors'
       })
     };
-    let activeBaseLayer = baseLayers.light.addTo(map);
-    map.fitBounds(bounds, { padding: [32, 32] });
+	    let activeBaseLayer = baseLayers.light.addTo(map);
+	    let lastRegion = null;
+	    map.fitBounds(bounds, { padding: [32, 32], animate: false });
 
     function option(select, value, text) {
       const item = document.createElement('option');
@@ -686,7 +828,9 @@ HTML_TEMPLATE = """<!doctype html>
       select.appendChild(item);
     }
 
-    option(providerSelect, '', 'All providers');
+	    option(regionSelect, '', 'All regions');
+	    regions.forEach(region => option(regionSelect, region, region));
+	    option(providerSelect, '', 'All providers');
     providers.forEach(provider => option(providerSelect, provider, provider));
     option(stateSelect, '', 'All states');
     states.forEach(state => option(stateSelect, state, state));
@@ -703,28 +847,46 @@ HTML_TEMPLATE = """<!doctype html>
         fillOpacity: 0.9,
         opacity: 1
       });
-      marker.bindPopup(`
-        <div class="popup-title"><span class="dot" style="background:${home.provider_color}"></span>${escapeHtml(home.service_name)}</div>
-        <div class="popup-row"><b>Provider:</b> ${escapeHtml(home.provider_name)}</div>
-        <div class="popup-row"><b>Residential places:</b> ${home.residential_places}</div>
-        <div class="popup-row"><b>Address:</b> ${escapeHtml(home.address)}</div>
-        <div class="popup-row"><b>Organisation:</b> ${escapeHtml(home.organisation_type)}</div>
-      `);
-      return { home, marker };
-    });
+	      marker.bindPopup(`
+	        <div class="popup-title"><span class="dot" style="background:${home.provider_color}"></span>${escapeHtml(home.service_name)}</div>
+	        <div class="popup-row"><b>Provider:</b> ${escapeHtml(home.provider_name)}</div>
+	        <div class="popup-row"><b>Region:</b> ${escapeHtml(regionLabel(home))}</div>
+	        <div class="popup-row"><b>Places/beds:</b> ${home.residential_places}</div>
+	        <div class="popup-row"><b>Address:</b> ${escapeHtml(home.address)}</div>
+	        <div class="popup-row"><b>Organisation:</b> ${escapeHtml(home.organisation_type)}</div>
+	        ${home.overall_rating ? `<div class="popup-row"><b>CMS overall rating:</b> ${escapeHtml(home.overall_rating)} / 5</div>` : ''}
+	        <div class="popup-row"><b>Source:</b> ${escapeHtml(home.source_dataset)}</div>
+	      `);
+	      return { home, marker };
+	    });
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
     }
 
-    function matches(home, q) {
-      if (!q) return true;
-      return [home.service_name, home.provider_name, home.suburb, home.address, home.lga].join(' ').toLowerCase().includes(q);
-    }
+	    function matches(home, q) {
+	      if (!q) return true;
+	      return [home.service_name, home.provider_name, home.suburb, home.address, home.lga, home.county, home.chain_name, home.legal_business_name].join(' ').toLowerCase().includes(q);
+	    }
+
+	    function matchesRegion(home, region) {
+	      if (!region) return true;
+	      if (region === 'Australia') return home.country === 'Australia';
+	      if (region === 'California') return home.country === 'United States' && home.state === 'CA';
+	      if (region === 'San Francisco Bay Area') return home.metro_area === 'San Francisco Bay Area';
+	      return true;
+	    }
+
+	    function regionLabel(home) {
+	      if (home.metro_area) return home.metro_area;
+	      if (home.country === 'United States') return 'California';
+	      return 'Australia';
+	    }
 
     function selectedFilters() {
-      return {
-        provider: providerSelect.value,
+	      return {
+	        region: regionSelect.value,
+	        provider: providerSelect.value,
         state: stateSelect.value,
         q: searchInput.value.trim(),
         style: mapStyleSelect.value
@@ -741,8 +903,9 @@ HTML_TEMPLATE = """<!doctype html>
 
     function updateUrl() {
       const filters = selectedFilters();
-      const params = new URLSearchParams();
-      if (filters.provider) params.set('provider', filters.provider);
+	      const params = new URLSearchParams();
+	      if (filters.region) params.set('region', filters.region);
+	      if (filters.provider) params.set('provider', filters.provider);
       if (filters.state) params.set('state', filters.state);
       if (filters.q) params.set('q', filters.q);
       if (filters.style !== 'light') params.set('style', filters.style);
@@ -755,42 +918,58 @@ HTML_TEMPLATE = """<!doctype html>
       const q = filters.q.toLowerCase();
       setBaseLayer(filters.style);
       layer.clearLayers();
-      let shown = 0;
-      let places = 0;
-      for (const item of markers) {
-        const home = item.home;
-        if (filters.provider && home.provider_name !== filters.provider) continue;
+	      let shown = 0;
+	      let places = 0;
+	      const shownBounds = [];
+	      const visibleProviders = {};
+	      for (const item of markers) {
+	        const home = item.home;
+	        if (!matchesRegion(home, filters.region)) continue;
+	        if (filters.provider && home.provider_name !== filters.provider) continue;
         if (filters.state && home.state !== filters.state) continue;
         if (!matches(home, q)) continue;
-        item.marker.addTo(layer);
-        shown += 1;
-        places += home.residential_places;
-      }
-      visibleCount.textContent = `${shown.toLocaleString()} visible homes, ${places.toLocaleString()} residential places`;
-      updateUrl();
-    }
+	        item.marker.addTo(layer);
+	        shownBounds.push([home.latitude, home.longitude]);
+	        shown += 1;
+	        places += home.residential_places;
+	        visibleProviders[home.provider_name] = (visibleProviders[home.provider_name] || 0) + 1;
+	      }
+	      visibleCount.textContent = `${shown.toLocaleString()} visible homes, ${places.toLocaleString()} places/beds`;
+	      if (filters.region !== lastRegion && shownBounds.length) {
+	        map.fitBounds(shownBounds, { padding: [32, 32], animate: false });
+	        lastRegion = filters.region;
+	      }
+	      renderLegend(visibleProviders);
+	      updateUrl();
+	    }
 
-    function renderLegend() {
-      legend.innerHTML = '';
-      topProviders.forEach(([provider, count]) => {
-        const home = homes.find(item => item.provider_name === provider);
-        const row = document.createElement('div');
+	    function renderLegend(providerCounts = null) {
+	      legend.innerHTML = '';
+	      const providersToShow = providerCounts
+	        ? Object.entries(providerCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 20)
+	        : topProviders;
+	      providersToShow.forEach(([provider, count]) => {
+	        const home = homes.find(item => item.provider_name === provider);
+	        if (!home) return;
+	        const row = document.createElement('div');
         row.className = 'legend-item';
         row.innerHTML = `<span class="swatch" style="background:${home.provider_color}"></span><span>${escapeHtml(provider)}</span><span>${count}</span>`;
         legend.appendChild(row);
       });
     }
 
-    function applyUrlParams() {
-      const params = new URLSearchParams(location.search);
-      providerSelect.value = params.get('provider') || '';
+	    function applyUrlParams() {
+	      const params = new URLSearchParams(location.search);
+	      regionSelect.value = params.get('region') || 'Australia';
+	      providerSelect.value = params.get('provider') || '';
       stateSelect.value = params.get('state') || '';
       searchInput.value = params.get('q') || '';
       mapStyleSelect.value = params.get('style') || 'light';
     }
 
-    function resetFilters() {
-      providerSelect.value = '';
+	    function resetFilters() {
+	      regionSelect.value = 'Australia';
+	      providerSelect.value = '';
       stateSelect.value = '';
       searchInput.value = '';
       mapStyleSelect.value = 'light';
@@ -808,15 +987,14 @@ HTML_TEMPLATE = """<!doctype html>
       window.setTimeout(() => { shareButton.textContent = 'Copy share link'; }, 1800);
     }
 
-    [providerSelect, stateSelect, mapStyleSelect, searchInput].forEach(el => el.addEventListener('input', applyFilters));
+	    [regionSelect, providerSelect, stateSelect, mapStyleSelect, searchInput].forEach(el => el.addEventListener('input', applyFilters));
     shareButton.addEventListener('click', copyShareLink);
     resetButton.addEventListener('click', resetFilters);
     applyUrlParams();
     if (matchMedia('(max-width: 720px)').matches) {
       filtersPanel.removeAttribute('open');
     }
-    renderLegend();
-    applyFilters();
+	    applyFilters();
   </script>
 </body>
 </html>

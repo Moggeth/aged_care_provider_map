@@ -1,10 +1,12 @@
-# Australia residential aged care homes by provider
+# Residential care homes by provider
 
-This folder contains a provider-coloured map of Australian residential aged-care homes using the official GEN Aged Care Data service list current as at 30 June 2025.
+This folder contains a provider-coloured map of Australian residential aged-care homes and California nursing homes using official government source data.
 
-Source: Department of Health, Disability and Ageing / AIHW GEN, "Aged care service list: 30 June 2025". The downloaded source file is `data/Service-List-2025-Australia_300126.xlsx` and matches the current official Australia XLSX download.
+Australian source: Department of Health, Disability and Ageing / AIHW GEN, "Aged care service list: 30 June 2025". The downloaded source file is `data/Service-List-2025-Australia_300126.xlsx` and matches the current official Australia XLSX download.
 
-Residential-active verification: rows are restricted to `Care Type == Residential`. The generated verification report compares mapped homes with the Department's `data/star-ratings-quarterly-data-extract-february-2026.xlsx` service-level Star Ratings extract for February 2026.
+California source: Centers for Medicare & Medicaid Services (CMS), "Provider Information", Nursing homes including rehab services. The downloaded source file is `data/NH_ProviderInfo_Apr2026.csv`.
+
+Australian residential-active verification: Australian rows are restricted to `Care Type == Residential`. The generated verification report compares mapped Australian homes with the Department's `data/star-ratings-quarterly-data-extract-february-2026.xlsx` service-level Star Ratings extract for February 2026. CMS describes the California Provider Information table as currently active nursing homes.
 
 Generated outputs:
 
@@ -17,7 +19,7 @@ Generated outputs:
 - `output/verification_report.csv`: residential-home verification status against the February 2026 Star Ratings extract.
 - `output/verification_summary.json`: verification counts and interpretation.
 
-Inclusion rule: rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude.
+Inclusion rule: Australian rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude; California CMS rows with `State == CA` and valid latitude/longitude.
 
 Use with Google My Maps:
 
