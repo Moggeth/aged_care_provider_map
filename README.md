@@ -37,6 +37,20 @@ Regenerate with:
 python3 scripts/build_map.py
 ```
 
+Professional HTTPS hosting:
+
+- CloudFront URL: https://dgv72coqns6yt.cloudfront.net/
+- Origin bucket: `andromeda-aged-care-provider-map-prod`
+- CloudFront distribution: `E2Y6OESD3IEA02`
+- The S3 origin is private, public bucket access is blocked, CloudFront redirects HTTP to HTTPS, and the AWS managed security headers policy is attached.
+
+Deploy updates with:
+
+```bash
+python3 scripts/build_map.py
+scripts/deploy_aws_static.sh
+```
+
 Publish online with GitHub Pages:
 
 1. Create a GitHub repository and push this folder to it.
