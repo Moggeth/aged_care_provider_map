@@ -12,6 +12,8 @@ Australian residential-active verification: Australian rows are restricted to `C
 
 California prospecting fit: the map adds a practical, non-official filter that labels standard CDSS `RESIDENTIAL CARE ELDERLY` rows as `High-fit elder residential`, and labels CDSS `RCFE-CONTINUING CARE RETIREMENT COMMUNITY` plus CMS nursing homes as `Hybrid facility`.
 
+California terminology for Australian readers: RCFE means Residential Care Facility for the Elderly and is broadly similar to assisted living or residential aged-care accommodation rather than a hospital. CCRC means Continuing Care Retirement Community, usually a campus with multiple care levels. CMS nursing homes are skilled nursing facilities, closer to clinical long-term care or rehabilitation than standard Australian residential aged care.
+
 Generated outputs:
 
 - `output/aged_care_homes_by_provider.html`: interactive browser map with provider and state filters.

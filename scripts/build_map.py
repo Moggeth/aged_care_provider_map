@@ -1087,6 +1087,8 @@ Australian residential-active verification: Australian rows are restricted to `C
 
 California prospecting fit: the map adds a practical, non-official filter that labels standard CDSS `RESIDENTIAL CARE ELDERLY` rows as `High-fit elder residential`, and labels CDSS `RCFE-CONTINUING CARE RETIREMENT COMMUNITY` plus CMS nursing homes as `Hybrid facility`.
 
+California terminology for Australian readers: RCFE means Residential Care Facility for the Elderly and is broadly similar to assisted living or residential aged-care accommodation rather than a hospital. CCRC means Continuing Care Retirement Community, usually a campus with multiple care levels. CMS nursing homes are skilled nursing facilities, closer to clinical long-term care or rehabilitation than standard Australian residential aged care.
+
 Generated outputs:
 
 - `output/aged_care_homes_by_provider.html`: interactive browser map with provider and state filters.
@@ -1229,7 +1231,6 @@ HTML_TEMPLATE = """<!doctype html>
 	          <label>Care category<select id="careCategory"></select></label>
 	          <label>Provider<select id="provider"></select></label>
 	          <label>State / territory<select id="state"></select></label>
-          <label>Map style<select id="mapStyle"></select></label>
           <div class="actions">
             <button id="shareButton" type="button">Copy share link</button>
             <button id="resetButton" type="button">Reset filters</button>
@@ -1248,6 +1249,7 @@ HTML_TEMPLATE = """<!doctype html>
 	        <p>Source: <a href="https://www.gen-agedcaredata.gov.au/resources/access-data/2025/october/aged-care-service-list-30-june-2025" target="_blank" rel="noopener">Aged care service list: 30 June 2025</a>. The source page says the files are current as at 30 June 2025 and updated annually.</p>
 	        <p>California nursing-home source: <a href="https://data.cms.gov/provider-data/dataset/4pq5-n9py" target="_blank" rel="noopener">CMS Provider Information</a>. CMS describes this April 2026 dataset as general information on currently active nursing homes, one row per nursing home.</p>
 	        <p>California residential-care source: <a href="https://catalog.data.gov/dataset/community-care-licensing-facilities" target="_blank" rel="noopener">California DSS Community Care Licensing Facilities</a>, Residential Care Facilities for the Elderly. Included RCFE rows have status LICENSED or ON PROBATION in the official file dated 05/25/2025; CLOSED and PENDING rows are excluded. RCFE coordinates are matched from the facility address using the <a href="https://geocoding.geo.census.gov/geocoder/" target="_blank" rel="noopener">U.S. Census Geocoder</a>.</p>
+	        <p>California terminology: RCFE means Residential Care Facility for the Elderly, broadly similar to assisted living or residential aged-care accommodation rather than a hospital. CCRC means Continuing Care Retirement Community, usually a campus with multiple care levels. CMS nursing homes are skilled nursing facilities, closer to clinical long-term care or rehabilitation than standard Australian residential aged care.</p>
 	        <p>Included Australian rows have residential places above zero and valid latitude/longitude. Included California rows include __CALIFORNIA_RCFE_COUNT__ active RCFEs/RCFE-CCRCS and __CALIFORNIA_NURSING_HOME_COUNT__ currently active CMS nursing homes. This version maps __AUSTRALIA_COUNT__ Australian homes, __CALIFORNIA_COUNT__ California homes, __BAY_AREA_COUNT__ San Francisco Bay Area homes, and __SF_RCFE_COUNT__ San Francisco RCFEs.</p>
 	        <p>The California fit filter is a practical prospecting classification, not an official license category. High-fit elder residential means a standard CDSS Residential Care Facility for the Elderly (__CALIFORNIA_HIGH_FIT_COUNT__ mapped facilities). Hybrid facility means an RCFE-CCRC or CMS nursing home/skilled nursing facility (__CALIFORNIA_HYBRID_COUNT__ mapped facilities); these may house older long-term residents, but can also include continuing-care, rehabilitation, skilled-nursing, hospital-based, or clinically complex populations.</p>
 	        <p>Cross-check: <a href="https://www.health.gov.au/resources/publications/star-ratings-quarterly-data-extract-february-2026?language=en" target="_blank" rel="noopener">February 2026 Star Ratings service-level extract</a>. __VERIFIED_EXACT__ homes matched exactly; __VERIFIED_PROVIDER_CHANGED__ matched by service/suburb/state with provider-name differences; __VERIFIED_UNMATCHED__ were not matched and should be manually reviewed.</p>
@@ -1265,12 +1267,11 @@ HTML_TEMPLATE = """<!doctype html>
 	    const californiaFits = __CALIFORNIA_FITS__;
 	    const topProviders = __TOP_PROVIDERS__;
     const bounds = __BOUNDS__;
-	    const regionSelect = document.getElementById('region');
-	    const californiaFitSelect = document.getElementById('californiaFit');
-	    const careCategorySelect = document.getElementById('careCategory');
-	    const providerSelect = document.getElementById('provider');
+    const regionSelect = document.getElementById('region');
+    const californiaFitSelect = document.getElementById('californiaFit');
+    const careCategorySelect = document.getElementById('careCategory');
+    const providerSelect = document.getElementById('provider');
     const stateSelect = document.getElementById('state');
-    const mapStyleSelect = document.getElementById('mapStyle');
     const searchInput = document.getElementById('search');
     const filtersPanel = document.getElementById('filtersPanel');
     const shareButton = document.getElementById('shareButton');
@@ -1288,17 +1289,10 @@ HTML_TEMPLATE = """<!doctype html>
     map.attributionControl.setPosition('topleft');
     map.attributionControl.setPrefix(false);
     L.control.zoom({ position: 'topright' }).addTo(map);
-    const baseLayers = {
-      light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 20,
-        attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-      }),
-      detail: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors'
-      })
-    };
-	    let activeBaseLayer = baseLayers.light.addTo(map);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 20,
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }).addTo(map);
 	    let lastRegion = null;
 	    map.fitBounds(bounds, { paddingTopLeft: [470, 32], paddingBottomRight: [32, 32], animate: false });
 
@@ -1319,9 +1313,6 @@ HTML_TEMPLATE = """<!doctype html>
     providers.forEach(provider => option(providerSelect, provider, provider));
     option(stateSelect, '', 'All states');
     states.forEach(state => option(stateSelect, state, state));
-    option(mapStyleSelect, 'light', 'Light map');
-    option(mapStyleSelect, 'detail', 'Detailed streets');
-
     const layer = L.layerGroup().addTo(map);
     const markers = homes.map(home => {
       const marker = L.circleMarker([home.latitude, home.longitude], {
@@ -1379,16 +1370,7 @@ HTML_TEMPLATE = """<!doctype html>
 	        provider: providerSelect.value,
         state: stateSelect.value,
         q: searchInput.value.trim(),
-        style: mapStyleSelect.value
       };
-    }
-
-    function setBaseLayer(style) {
-      const nextLayer = baseLayers[style] || baseLayers.light;
-      if (activeBaseLayer === nextLayer) return;
-      map.removeLayer(activeBaseLayer);
-      activeBaseLayer = nextLayer.addTo(map);
-      activeBaseLayer.bringToBack();
     }
 
     function updateUrl() {
@@ -1400,7 +1382,6 @@ HTML_TEMPLATE = """<!doctype html>
 	      if (filters.provider) params.set('provider', filters.provider);
       if (filters.state) params.set('state', filters.state);
       if (filters.q) params.set('q', filters.q);
-      if (filters.style !== 'light') params.set('style', filters.style);
       const nextUrl = `${location.pathname}${params.toString() ? '?' + params.toString() : ''}${location.hash}`;
       history.replaceState(null, '', nextUrl);
     }
@@ -1408,7 +1389,6 @@ HTML_TEMPLATE = """<!doctype html>
     function applyFilters() {
       const filters = selectedFilters();
       const q = filters.q.toLowerCase();
-      setBaseLayer(filters.style);
       layer.clearLayers();
 	      let shown = 0;
 	      let places = 0;
@@ -1460,17 +1440,15 @@ HTML_TEMPLATE = """<!doctype html>
 	      providerSelect.value = params.get('provider') || '';
       stateSelect.value = params.get('state') || '';
       searchInput.value = params.get('q') || '';
-      mapStyleSelect.value = params.get('style') || 'light';
     }
 
 	    function resetFilters() {
 	      regionSelect.value = '';
 	      californiaFitSelect.value = '';
 	      careCategorySelect.value = '';
-	      providerSelect.value = '';
+      providerSelect.value = '';
       stateSelect.value = '';
       searchInput.value = '';
-      mapStyleSelect.value = 'light';
       applyFilters();
     }
 
@@ -1485,7 +1463,7 @@ HTML_TEMPLATE = """<!doctype html>
       window.setTimeout(() => { shareButton.textContent = 'Copy share link'; }, 1800);
     }
 
-	    [regionSelect, californiaFitSelect, careCategorySelect, providerSelect, stateSelect, mapStyleSelect, searchInput].forEach(el => el.addEventListener('input', applyFilters));
+	    [regionSelect, californiaFitSelect, careCategorySelect, providerSelect, stateSelect, searchInput].forEach(el => el.addEventListener('input', applyFilters));
     shareButton.addEventListener('click', copyShareLink);
     resetButton.addEventListener('click', resetFilters);
     applyUrlParams();
