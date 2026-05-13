@@ -1,33 +1,43 @@
 {
   "sources": [
     "GEN Aged Care Data / Department of Health, Disability and Ageing, Aged care service list: 30 June 2025",
-    "CMS Provider Information, Nursing homes including rehab services: April 2026"
+    "CMS Provider Information, Nursing homes including rehab services: April 2026",
+    "California DSS Community Care Licensing Facilities, Residential Care Facilities for the Elderly: file date 05/25/2025"
   ],
   "source_files": [
     "Service-List-2025-Australia_300126.xlsx",
-    "NH_ProviderInfo_Apr2026.csv"
+    "NH_ProviderInfo_Apr2026.csv",
+    "CA_RCFE_Community_Care_Licensing_Facilities_20250525.csv"
   ],
-  "included_care_type": "Australia Residential; California CMS currently active nursing homes",
-  "generated_home_count": 3752,
-  "provider_count": 1111,
-  "total_residential_places": 339485,
-  "median_residential_places": 88.0,
+  "included_care_type": "Australia Residential; California CMS currently active nursing homes; California CDSS licensed/on-probation Residential Care Facilities for the Elderly",
+  "generated_home_count": 11487,
+  "provider_count": 7824,
+  "total_residential_places": 536151,
+  "median_residential_places": 6,
   "country_counts": {
     "Australia": 2590,
-    "United States": 1162
+    "United States": 8897
   },
   "region_counts": {
     "Australia": 2590,
-    "California": 938,
-    "San Francisco Bay Area": 224
+    "California": 7134,
+    "San Francisco Bay Area": 1763
+  },
+  "care_category_counts": {
+    "Australian residential aged care": 2590,
+    "California RCFE": 7635,
+    "California RCFE-CCRC": 100,
+    "California nursing home": 1162
   },
   "care_type_counts": {
+    "Continuing care retirement community": 100,
     "Nursing home": 1162,
-    "Residential": 2590
+    "Residential": 2590,
+    "Residential care facility for the elderly": 7635
   },
   "state_counts": {
     "ACT": 27,
-    "CA": 1162,
+    "CA": 8897,
     "NSW": 817,
     "NT": 9,
     "QLD": 457,

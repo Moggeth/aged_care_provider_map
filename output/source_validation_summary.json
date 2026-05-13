@@ -1,11 +1,12 @@
 {
   "official_sources_only": true,
-  "generated_home_count": 3752,
+  "generated_home_count": 11487,
   "validation_counts": {
     "confirmed_in_feb_2026_star_ratings": 2386,
     "service_location_match_provider_changed": 145,
     "not_matched_in_feb_2026_star_ratings": 59,
-    "confirmed_currently_active_in_cms_provider_information_apr_2026": 1162
+    "confirmed_currently_active_in_cms_provider_information_apr_2026": 1162,
+    "confirmed_active_in_cdss_ccld_rcfe_file_2025_05_25": 7735
   },
   "australia": {
     "official_source": "GEN Aged Care Service List",
@@ -21,29 +22,7 @@
     }
   },
   "california": {
-    "official_source": "CMS Provider Information",
-    "dataset_id": "4pq5-n9py",
-    "dataset_title": "Provider Information",
-    "dataset_description": "General information on currently active nursing homes, including number of certified beds, quality measure scores, staffing and other information used in the Five-Star Rating System. Data are presented as one row per nursing home.",
-    "landing_page": "https://data.cms.gov/provider-data/dataset/4pq5-n9py",
-    "download_url": "https://data.cms.gov/provider-data/sites/default/files/resources/48b0263f73f1f8741101da989557a8a9_1776435355/NH_ProviderInfo_Apr2026.csv",
-    "released": "2026-04-29",
-    "modified": "2026-04-01",
-    "next_update_date": "2026-05-27",
-    "source_file": "NH_ProviderInfo_Apr2026.csv",
-    "source_file_sha256": "1fbd7d2a887c50172cb4ca6e88405f24546aa12f576f81ce06cea305abb2ce2e",
-    "all_california_source_rows_mapped": true,
-    "cms_total_rows": 14699,
-    "cms_california_rows": 1162,
-    "mapped_california_rows": 1162,
-    "unique_california_ccns": 1162,
-    "duplicate_california_ccns": [],
-    "california_rows_missing_coordinates": 0,
-    "california_rows_outside_coordinate_bounds": 0,
-    "california_rows_missing_certified_beds": 1,
-    "san_francisco_city_rows": 18,
-    "san_francisco_county_rows": 18,
-    "san_francisco_bay_area_rows": 224,
+    "mapped_california_rows": 8897,
     "bay_area_counties": [
       "Alameda",
       "Contra Costa",
@@ -54,7 +33,78 @@
       "Santa Clara",
       "Solano",
       "Sonoma"
-    ]
+    ],
+    "cms_nursing_homes": {
+      "official_source": "CMS Provider Information",
+      "dataset_id": "4pq5-n9py",
+      "dataset_title": "Provider Information",
+      "dataset_description": "General information on currently active nursing homes, including number of certified beds, quality measure scores, staffing and other information used in the Five-Star Rating System. Data are presented as one row per nursing home.",
+      "landing_page": "https://data.cms.gov/provider-data/dataset/4pq5-n9py",
+      "download_url": "https://data.cms.gov/provider-data/sites/default/files/resources/48b0263f73f1f8741101da989557a8a9_1776435355/NH_ProviderInfo_Apr2026.csv",
+      "released": "2026-04-29",
+      "modified": "2026-04-01",
+      "next_update_date": "2026-05-27",
+      "source_file": "NH_ProviderInfo_Apr2026.csv",
+      "source_file_sha256": "1fbd7d2a887c50172cb4ca6e88405f24546aa12f576f81ce06cea305abb2ce2e",
+      "all_california_source_rows_mapped": true,
+      "cms_total_rows": 14699,
+      "cms_california_rows": 1162,
+      "mapped_california_rows": 1162,
+      "unique_california_ccns": 1162,
+      "duplicate_california_ccns": [],
+      "california_rows_missing_coordinates": 0,
+      "california_rows_outside_coordinate_bounds": 0,
+      "california_rows_missing_certified_beds": 1,
+      "san_francisco_city_rows": 18,
+      "san_francisco_county_rows": 18,
+      "san_francisco_bay_area_rows": 224
+    },
+    "rcfe": {
+      "official_source": "California DSS Community Care Licensing Facilities - Residential Care Facilities for the Elderly",
+      "landing_page": "https://catalog.data.gov/dataset/community-care-licensing-facilities",
+      "download_url": "https://data.chhs.ca.gov/dataset/46ffcbdf-4874-4cc1-92c2-fb715e3ad014/resource/744d1583-f9eb-45b6-b0f8-b9a9dab936a6/download/tmpacjmwy9v.csv",
+      "source_file": "CA_RCFE_Community_Care_Licensing_Facilities_20250525.csv",
+      "source_file_sha256": "f35887f9d6aed0c857ba6c20ae0460d2ece3146e8ee0fa19cb711c8dd9e22797",
+      "data_dictionary_file": "ca_rcfe_data_dictionary.csv",
+      "geocoder": "U.S. Census Geocoder address batch",
+      "geocoder_url": "https://geocoding.geo.census.gov/geocoder/locations/addressbatch",
+      "geocode_file": "ca_rcfe_geocodes_census_20260513.csv",
+      "geocode_file_sha256": "d6b0ebeade3852abaf4b64042dab2f3d80cf759db8a7a34f162bfec0d8e85f71",
+      "file_date_values": [
+        "05/25/2025"
+      ],
+      "total_rows": 12522,
+      "status_counts": {
+        "LICENSED": 7939,
+        "CLOSED": 3821,
+        "PENDING": 739,
+        "ON PROBATION": 23
+      },
+      "included_statuses": [
+        "LICENSED",
+        "ON PROBATION"
+      ],
+      "active_rows": 7962,
+      "mapped_active_rows": 7735,
+      "unmapped_active_rows": 227,
+      "geocode_status_counts": {
+        "Match": 7735,
+        "No_Match": 207,
+        "Tie": 20
+      },
+      "geocode_match_type_counts": {
+        "Exact": 6976,
+        "Non_Exact": 759
+      },
+      "mapped_rcfe_rows": 7635,
+      "mapped_rcfe_ccrc_rows": 100,
+      "san_francisco_active_rows": 51,
+      "san_francisco_mapped_rows": 51,
+      "san_francisco_active_capacity": 3368,
+      "san_francisco_mapped_capacity": 3368,
+      "san_francisco_bay_area_active_rows": 1580,
+      "san_francisco_bay_area_mapped_rows": 1539
+    }
   },
-  "interpretation": "California rows are validated against the official CMS Provider Information file, which CMS describes as currently active nursing homes. Australian rows are validated against the official GEN service list and cross-checked against the February 2026 Star Ratings extract."
+  "interpretation": "California nursing-home rows are validated against the official CMS Provider Information file, which CMS describes as currently active nursing homes. California RCFE rows are active LICENSED or ON PROBATION facilities from the official CDSS Community Care Licensing RCFE file and are plotted only when the U.S. Census Geocoder returned a usable address match. Australian rows are validated against the official GEN service list and cross-checked against the February 2026 Star Ratings extract."
 }

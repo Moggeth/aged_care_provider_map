@@ -17,6 +17,9 @@ SOURCE_XLSX = ROOT / "data" / "Service-List-2025-Australia_300126.xlsx"
 STAR_RATINGS_XLSX = ROOT / "data" / "star-ratings-quarterly-data-extract-february-2026.xlsx"
 CMS_NURSING_HOME_CSV = ROOT / "data" / "NH_ProviderInfo_Apr2026.csv"
 CMS_NURSING_HOME_METADATA = ROOT / "data" / "cms_provider_information_metadata.json"
+CA_RCFE_CSV = ROOT / "data" / "CA_RCFE_Community_Care_Licensing_Facilities_20250525.csv"
+CA_RCFE_DICTIONARY_CSV = ROOT / "data" / "ca_rcfe_data_dictionary.csv"
+CA_RCFE_GEOCODES_CSV = ROOT / "data" / "ca_rcfe_geocodes_census_20260513.csv"
 OUTPUT = ROOT / "output"
 
 NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -38,6 +41,15 @@ CALIFORNIA_BOUNDS = {
     "min_longitude": -125.0,
     "max_longitude": -114.0,
 }
+CA_RCFE_ACTIVE_STATUSES = {"LICENSED", "ON PROBATION"}
+CA_RCFE_SOURCE_URL = (
+    "https://catalog.data.gov/dataset/community-care-licensing-facilities"
+)
+CA_RCFE_DOWNLOAD_URL = (
+    "https://data.chhs.ca.gov/dataset/46ffcbdf-4874-4cc1-92c2-fb715e3ad014/"
+    "resource/744d1583-f9eb-45b6-b0f8-b9a9dab936a6/download/tmpacjmwy9v.csv"
+)
+CENSUS_GEOCODER_URL = "https://geocoding.geo.census.gov/geocoder/locations/addressbatch"
 
 
 def column_index(cell_ref):
@@ -160,6 +172,29 @@ def normalize_key(value):
     return re.sub(r"[^a-z0-9]+", " ", str(value).casefold()).strip()
 
 
+def normalize_county(value):
+    return " ".join(part.capitalize() for part in clean(value).split())
+
+
+def parse_rcfe_file_date(value):
+    value = clean(value)
+    if len(value) != 8:
+        return value
+    return f"{value[0:2]}/{value[2:4]}/{value[4:8]}"
+
+
+def care_category(home):
+    if home.get("country") == "Australia":
+        return "Australian residential aged care"
+    if home.get("source_type") == "ca_rcfe_ccrc":
+        return "California RCFE-CCRC"
+    if home.get("source_type") == "ca_rcfe":
+        return "California RCFE"
+    if home.get("source_type") == "ca_cms_nursing_home":
+        return "California nursing home"
+    return home.get("care_type") or "Other"
+
+
 def provider_color(provider, providers):
     idx = providers[provider]
     total = max(len(providers), 1)
@@ -245,6 +280,11 @@ def load_australian_homes():
             "metro_area": "",
             "source_dataset": "GEN Aged Care Service List: 30 June 2025",
             "source_status": "Official service list current as at 30 June 2025",
+            "source_type": "au_residential",
+            "source_identifier": "",
+            "license_status": "",
+            "geocode_status": "source coordinates",
+            "geocode_match_type": "",
             "cms_certification_number": "",
             "legal_business_name": "",
             "chain_name": "",
@@ -258,7 +298,7 @@ def load_australian_homes():
     return homes
 
 
-def load_california_homes():
+def load_california_nursing_homes():
     if not CMS_NURSING_HOME_CSV.exists():
         return []
 
@@ -309,6 +349,11 @@ def load_california_homes():
                 "metro_area": metro,
                 "source_dataset": "CMS Provider Information: April 2026",
                 "source_status": "CMS describes this dataset as currently active nursing homes",
+                "source_type": "ca_cms_nursing_home",
+                "source_identifier": row.get("CMS Certification Number (CCN)"),
+                "license_status": "currently active in CMS Provider Information",
+                "geocode_status": "source coordinates",
+                "geocode_match_type": "",
                 "cms_certification_number": row.get("CMS Certification Number (CCN)"),
                 "legal_business_name": legal,
                 "chain_name": chain,
@@ -319,6 +364,113 @@ def load_california_homes():
                 "funding_2024_25": "",
             }
             homes.append(home)
+    return homes
+
+
+def load_rcfe_rows():
+    if not CA_RCFE_CSV.exists():
+        return []
+    with CA_RCFE_CSV.open(newline="", encoding="utf-8-sig") as handle:
+        return list(csv.DictReader(handle))
+
+
+def load_rcfe_geocodes():
+    if not CA_RCFE_GEOCODES_CSV.exists():
+        return {}
+    geocodes = {}
+    with CA_RCFE_GEOCODES_CSV.open(newline="", encoding="utf-8") as handle:
+        for row in csv.reader(handle):
+            if len(row) < 3:
+                continue
+            lon = lat = None
+            if row[2] == "Match" and len(row) >= 6:
+                parts = row[5].split(",")
+                if len(parts) == 2:
+                    lon = to_float(parts[0])
+                    lat = to_float(parts[1])
+            geocodes[row[0]] = {
+                "input_address": row[1],
+                "match_status": row[2],
+                "match_type": row[3] if len(row) > 3 else "",
+                "matched_address": row[4] if len(row) > 4 else "",
+                "longitude": lon,
+                "latitude": lat,
+            }
+    return geocodes
+
+
+def load_california_rcfe_homes():
+    rows = load_rcfe_rows()
+    if not rows:
+        return []
+    geocodes = load_rcfe_geocodes()
+    homes = []
+    for row in rows:
+        if row.get("facility_status") not in CA_RCFE_ACTIVE_STATUSES:
+            continue
+        capacity = to_int(row.get("facility_capacity"))
+        if capacity <= 0:
+            continue
+        geocode = geocodes.get(row.get("facility_number"), {})
+        if geocode.get("match_status") != "Match":
+            continue
+        lat = geocode.get("latitude")
+        lon = geocode.get("longitude")
+        if lat is None or lon is None:
+            continue
+        if not (
+            CALIFORNIA_BOUNDS["min_latitude"] <= lat <= CALIFORNIA_BOUNDS["max_latitude"]
+            and CALIFORNIA_BOUNDS["min_longitude"] <= lon <= CALIFORNIA_BOUNDS["max_longitude"]
+        ):
+            continue
+        county = normalize_county(row.get("county_name"))
+        metro = "San Francisco Bay Area" if county in SF_BAY_AREA_COUNTIES else ""
+        facility_type = row.get("facility_type")
+        is_ccrc = facility_type == "RCFE-CONTINUING CARE RETIREMENT COMMUNITY"
+        provider = row.get("licensee") or row.get("facility_name") or "Unknown provider"
+        city = row.get("facility_city")
+        state = row.get("facility_state")
+        zip_code = row.get("facility_zip")
+        address = ", ".join(part for part in [row.get("facility_address"), city, state, zip_code, "USA"] if part)
+        homes.append(
+            {
+                "source_region": metro or "California",
+                "country": "United States",
+                "service_name": row.get("facility_name"),
+                "provider_name": provider,
+                "care_type": "Continuing care retirement community" if is_ccrc else "Residential care facility for the elderly",
+                "care_category": "California RCFE-CCRC" if is_ccrc else "California RCFE",
+                "residential_places": capacity,
+                "address": address,
+                "state": state,
+                "suburb": city,
+                "postcode": zip_code,
+                "organisation_type": facility_type,
+                "remoteness": "",
+                "acpr": "",
+                "lga": county,
+                "county": county,
+                "metro_area": metro,
+                "source_dataset": "California DSS Community Care Licensing: Residential Care Facilities for the Elderly",
+                "source_status": (
+                    "Official CCLD RCFE file dated "
+                    f"{parse_rcfe_file_date(row.get('file_date'))}; status {row.get('facility_status')}"
+                ),
+                "source_type": "ca_rcfe_ccrc" if is_ccrc else "ca_rcfe",
+                "source_identifier": row.get("facility_number"),
+                "license_status": row.get("facility_status"),
+                "geocode_status": "matched by U.S. Census Geocoder",
+                "geocode_match_type": geocode.get("match_type", ""),
+                "cms_certification_number": "",
+                "legal_business_name": row.get("licensee"),
+                "chain_name": "",
+                "overall_rating": "",
+                "average_residents_per_day": "",
+                "latitude": lat,
+                "longitude": lon,
+                "funding_2024_25": "",
+            }
+        )
     return homes
 
 
@@ -336,7 +488,7 @@ def load_cms_metadata():
 
 
 def load_homes():
-    return load_australian_homes() + load_california_homes()
+    return load_australian_homes() + load_california_nursing_homes() + load_california_rcfe_homes()
 
 
 def load_star_ratings():
@@ -477,11 +629,28 @@ def write_source_validation_report(homes):
     cms_rows = load_cms_provider_rows()
     cms_metadata = load_cms_metadata()
     cms_ca_rows = [row for row in cms_rows if row.get("State") == "CA"]
+    ca_cms_homes = [home for home in california_homes if home.get("source_type") == "ca_cms_nursing_home"]
+    ca_rcfe_homes = [home for home in california_homes if home.get("source_type") in {"ca_rcfe", "ca_rcfe_ccrc"}]
     cms_ca_ccns = {row.get("CMS Certification Number (CCN)") for row in cms_ca_rows}
-    mapped_ca_ccns = {home.get("cms_certification_number") for home in california_homes}
+    mapped_ca_ccns = {home.get("cms_certification_number") for home in ca_cms_homes}
     sf_city_rows = [row for row in cms_ca_rows if row.get("City/Town", "").casefold() == "san francisco"]
     sf_county_rows = [row for row in cms_ca_rows if row.get("County/Parish") == "San Francisco"]
     bay_area_rows = [row for row in cms_ca_rows if row.get("County/Parish") in SF_BAY_AREA_COUNTIES]
+    rcfe_rows = load_rcfe_rows()
+    rcfe_geocodes = load_rcfe_geocodes()
+    rcfe_active_rows = [row for row in rcfe_rows if row.get("facility_status") in CA_RCFE_ACTIVE_STATUSES]
+    rcfe_mapped_numbers = {home.get("source_identifier") for home in ca_rcfe_homes}
+    rcfe_unmapped_active = [
+        row
+        for row in rcfe_active_rows
+        if row.get("facility_number") not in rcfe_mapped_numbers
+    ]
+    rcfe_sf_active_rows = [
+        row for row in rcfe_active_rows if normalize_county(row.get("county_name")) == "San Francisco"
+    ]
+    rcfe_bay_area_active_rows = [
+        row for row in rcfe_active_rows if normalize_county(row.get("county_name")) in SF_BAY_AREA_COUNTIES
+    ]
 
     fields = [
         "country",
@@ -509,13 +678,29 @@ def write_source_validation_report(homes):
                 source_date = "Current as at 30 June 2025"
                 identifier = ""
             elif home.get("country") == "United States" and home.get("state") == "CA":
-                status = "confirmed_currently_active_in_cms_provider_information_apr_2026"
-                notes = "CCN is present in CMS Provider Information dataset 4pq5-n9py."
-                if not home.get("residential_places"):
-                    notes += " CMS did not supply Number of Certified Beds for this row."
-                official_source = "CMS Provider Information"
-                source_date = "Released 2026-04-29; next update 2026-05-27"
-                identifier = home.get("cms_certification_number")
+                if home.get("source_type") == "ca_cms_nursing_home":
+                    status = "confirmed_currently_active_in_cms_provider_information_apr_2026"
+                    notes = "CCN is present in CMS Provider Information dataset 4pq5-n9py."
+                    if not home.get("residential_places"):
+                        notes += " CMS did not supply Number of Certified Beds for this row."
+                    official_source = "CMS Provider Information"
+                    source_date = "Released 2026-04-29; next update 2026-05-27"
+                    identifier = home.get("cms_certification_number")
+                elif home.get("source_type") in {"ca_rcfe", "ca_rcfe_ccrc"}:
+                    status = "confirmed_active_in_cdss_ccld_rcfe_file_2025_05_25"
+                    notes = (
+                        f"Facility number is present in CDSS CCLD RCFE file with status {home.get('license_status')}; "
+                        f"coordinates are {home.get('geocode_match_type', '').lower()} matches from the U.S. Census Geocoder."
+                    )
+                    official_source = "California DSS Community Care Licensing Facilities - Residential Care Facilities for the Elderly"
+                    source_date = "File date 05/25/2025"
+                    identifier = home.get("source_identifier")
+                else:
+                    status = "unsupported_california_source"
+                    notes = "California row does not identify a configured source type."
+                    official_source = home.get("source_dataset")
+                    source_date = ""
+                    identifier = home.get("source_identifier")
             else:
                 status = "unsupported_region"
                 notes = "Region is outside the configured validation sources."
@@ -546,34 +731,74 @@ def write_source_validation_report(homes):
         ccn for ccn, count in Counter(row.get("CMS Certification Number (CCN)") for row in cms_ca_rows).items() if count > 1
     ]
     california_summary = {
-        "official_source": "CMS Provider Information",
-        "dataset_id": cms_metadata.get("identifier", "4pq5-n9py"),
-        "dataset_title": cms_metadata.get("title", "Provider Information"),
-        "dataset_description": cms_metadata.get("description", ""),
-        "landing_page": cms_metadata.get("landingPage", "https://data.cms.gov/provider-data/dataset/4pq5-n9py"),
-        "download_url": (cms_metadata.get("distribution") or [{}])[0].get("downloadURL", ""),
-        "released": cms_metadata.get("released"),
-        "modified": cms_metadata.get("modified"),
-        "next_update_date": cms_metadata.get("nextUpdateDate"),
-        "source_file": CMS_NURSING_HOME_CSV.name,
-        "source_file_sha256": file_sha256(CMS_NURSING_HOME_CSV) if CMS_NURSING_HOME_CSV.exists() else "",
-        "all_california_source_rows_mapped": cms_ca_ccns == mapped_ca_ccns,
-        "cms_total_rows": len(cms_rows),
-        "cms_california_rows": len(cms_ca_rows),
         "mapped_california_rows": len(california_homes),
-        "unique_california_ccns": len(cms_ca_ccns),
-        "duplicate_california_ccns": ca_duplicate_ccns,
-        "california_rows_missing_coordinates": sum(
-            1 for row in cms_ca_rows if not row.get("Latitude") or not row.get("Longitude")
-        ),
-        "california_rows_outside_coordinate_bounds": sum(
-            1 for row in cms_ca_rows if row.get("Latitude") and row.get("Longitude") and not california_coordinate_in_bounds(row)
-        ),
-        "california_rows_missing_certified_beds": sum(1 for row in cms_ca_rows if not row.get("Number of Certified Beds")),
-        "san_francisco_city_rows": len(sf_city_rows),
-        "san_francisco_county_rows": len(sf_county_rows),
-        "san_francisco_bay_area_rows": len(bay_area_rows),
         "bay_area_counties": sorted(SF_BAY_AREA_COUNTIES),
+        "cms_nursing_homes": {
+            "official_source": "CMS Provider Information",
+            "dataset_id": cms_metadata.get("identifier", "4pq5-n9py"),
+            "dataset_title": cms_metadata.get("title", "Provider Information"),
+            "dataset_description": cms_metadata.get("description", ""),
+            "landing_page": cms_metadata.get("landingPage", "https://data.cms.gov/provider-data/dataset/4pq5-n9py"),
+            "download_url": (cms_metadata.get("distribution") or [{}])[0].get("downloadURL", ""),
+            "released": cms_metadata.get("released"),
+            "modified": cms_metadata.get("modified"),
+            "next_update_date": cms_metadata.get("nextUpdateDate"),
+            "source_file": CMS_NURSING_HOME_CSV.name,
+            "source_file_sha256": file_sha256(CMS_NURSING_HOME_CSV) if CMS_NURSING_HOME_CSV.exists() else "",
+            "all_california_source_rows_mapped": cms_ca_ccns == mapped_ca_ccns,
+            "cms_total_rows": len(cms_rows),
+            "cms_california_rows": len(cms_ca_rows),
+            "mapped_california_rows": len(ca_cms_homes),
+            "unique_california_ccns": len(cms_ca_ccns),
+            "duplicate_california_ccns": ca_duplicate_ccns,
+            "california_rows_missing_coordinates": sum(
+                1 for row in cms_ca_rows if not row.get("Latitude") or not row.get("Longitude")
+            ),
+            "california_rows_outside_coordinate_bounds": sum(
+                1
+                for row in cms_ca_rows
+                if row.get("Latitude") and row.get("Longitude") and not california_coordinate_in_bounds(row)
+            ),
+            "california_rows_missing_certified_beds": sum(1 for row in cms_ca_rows if not row.get("Number of Certified Beds")),
+            "san_francisco_city_rows": len(sf_city_rows),
+            "san_francisco_county_rows": len(sf_county_rows),
+            "san_francisco_bay_area_rows": len(bay_area_rows),
+        },
+        "rcfe": {
+            "official_source": "California DSS Community Care Licensing Facilities - Residential Care Facilities for the Elderly",
+            "landing_page": CA_RCFE_SOURCE_URL,
+            "download_url": CA_RCFE_DOWNLOAD_URL,
+            "source_file": CA_RCFE_CSV.name,
+            "source_file_sha256": file_sha256(CA_RCFE_CSV) if CA_RCFE_CSV.exists() else "",
+            "data_dictionary_file": CA_RCFE_DICTIONARY_CSV.name,
+            "geocoder": "U.S. Census Geocoder address batch",
+            "geocoder_url": CENSUS_GEOCODER_URL,
+            "geocode_file": CA_RCFE_GEOCODES_CSV.name,
+            "geocode_file_sha256": file_sha256(CA_RCFE_GEOCODES_CSV) if CA_RCFE_GEOCODES_CSV.exists() else "",
+            "file_date_values": sorted({parse_rcfe_file_date(row.get("file_date")) for row in rcfe_rows if row.get("file_date")}),
+            "total_rows": len(rcfe_rows),
+            "status_counts": dict(Counter(row.get("facility_status") for row in rcfe_rows)),
+            "included_statuses": sorted(CA_RCFE_ACTIVE_STATUSES),
+            "active_rows": len(rcfe_active_rows),
+            "mapped_active_rows": len(ca_rcfe_homes),
+            "unmapped_active_rows": len(rcfe_unmapped_active),
+            "geocode_status_counts": dict(Counter(geocode.get("match_status", "missing") for geocode in rcfe_geocodes.values())),
+            "geocode_match_type_counts": dict(
+                Counter(geocode.get("match_type", "") for geocode in rcfe_geocodes.values() if geocode.get("match_status") == "Match")
+            ),
+            "mapped_rcfe_rows": sum(1 for home in ca_rcfe_homes if home.get("source_type") == "ca_rcfe"),
+            "mapped_rcfe_ccrc_rows": sum(1 for home in ca_rcfe_homes if home.get("source_type") == "ca_rcfe_ccrc"),
+            "san_francisco_active_rows": len(rcfe_sf_active_rows),
+            "san_francisco_mapped_rows": sum(1 for home in ca_rcfe_homes if home.get("county") == "San Francisco"),
+            "san_francisco_active_capacity": sum(to_int(row.get("facility_capacity")) for row in rcfe_sf_active_rows),
+            "san_francisco_mapped_capacity": sum(
+                home.get("residential_places") or 0 for home in ca_rcfe_homes if home.get("county") == "San Francisco"
+            ),
+            "san_francisco_bay_area_active_rows": len(rcfe_bay_area_active_rows),
+            "san_francisco_bay_area_mapped_rows": sum(
+                1 for home in ca_rcfe_homes if home.get("metro_area") == "San Francisco Bay Area"
+            ),
+        },
     }
     australia_summary = {
         "official_source": "GEN Aged Care Service List",
@@ -591,9 +816,11 @@ def write_source_validation_report(homes):
         "australia": australia_summary,
         "california": california_summary,
         "interpretation": (
-            "California rows are validated against the official CMS Provider Information file, which CMS describes "
-            "as currently active nursing homes. Australian rows are validated against the official GEN service list "
-            "and cross-checked against the February 2026 Star Ratings extract."
+            "California nursing-home rows are validated against the official CMS Provider Information file, which CMS "
+            "describes as currently active nursing homes. California RCFE rows are active LICENSED or ON PROBATION "
+            "facilities from the official CDSS Community Care Licensing RCFE file and are plotted only when the U.S. "
+            "Census Geocoder returned a usable address match. Australian rows are validated against the official GEN "
+            "service list and cross-checked against the February 2026 Star Ratings extract."
         ),
     }
     summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -622,6 +849,11 @@ def write_csv(homes):
         "metro_area",
         "source_dataset",
         "source_status",
+        "source_type",
+        "source_identifier",
+        "license_status",
+        "geocode_status",
+        "geocode_match_type",
         "cms_certification_number",
         "legal_business_name",
         "chain_name",
@@ -644,6 +876,7 @@ def write_geojson(homes):
     features = []
     for home in homes:
         props = {k: v for k, v in home.items() if k not in ("latitude", "longitude")}
+        props["care_category"] = care_category(home)
         features.append(
             {
                 "type": "Feature",
@@ -687,7 +920,8 @@ def write_kml(homes, providers):
                 f"<b>Provider:</b> {html.escape(home['provider_name'])}<br>"
                 f"<b>Country:</b> {html.escape(home['country'])}<br>"
                 f"<b>Region:</b> {html.escape(source_region(home))}<br>"
-                f"<b>Certified places/beds:</b> {home['residential_places']}<br>"
+                f"<b>Care category:</b> {html.escape(care_category(home))}<br>"
+                f"<b>Places/capacity/beds:</b> {home['residential_places']}<br>"
                 f"<b>Address:</b> {html.escape(home['address'])}<br>"
                 f"<b>Organisation type:</b> {html.escape(home['organisation_type'])}<br>"
                 f"<b>Source:</b> {html.escape(home['source_dataset'])}"
@@ -725,12 +959,20 @@ def write_html(homes, providers):
     docs_path = ROOT / "docs" / "index.html"
     states = sorted({home["state"] for home in homes if home["state"]})
     regions = ["Australia", "California", "San Francisco Bay Area"]
+    care_categories = sorted({care_category(home) for home in homes}, key=sort_key)
     provider_counts = Counter(home["provider_name"] for home in homes)
     top_providers = provider_counts.most_common(20)
     _ratings, verification, _exact_rating_keys, _service_location_rating_keys = verification_counts(homes)
     country_counts = Counter(home["country"] for home in homes)
     california_count = sum(1 for home in homes if home.get("country") == "United States" and home.get("state") == "CA")
+    california_rcfe_count = sum(1 for home in homes if home.get("source_type") in {"ca_rcfe", "ca_rcfe_ccrc"})
+    california_nursing_home_count = sum(1 for home in homes if home.get("source_type") == "ca_cms_nursing_home")
     bay_area_count = sum(1 for home in homes if home.get("metro_area") == "San Francisco Bay Area")
+    sf_rcfe_count = sum(
+        1
+        for home in homes
+        if home.get("source_type") in {"ca_rcfe", "ca_rcfe_ccrc"} and home.get("county") == "San Francisco"
+    )
     lats = [home["latitude"] for home in homes]
     lons = [home["longitude"] for home in homes]
     data = [
@@ -738,6 +980,7 @@ def write_html(homes, providers):
             **home,
             "provider_color": home["provider_color"],
             "funding_2024_25": round(home["funding_2024_25"] or 0, 2),
+            "care_category": care_category(home),
         }
         for home in homes
     ]
@@ -745,11 +988,15 @@ def write_html(homes, providers):
     html_text = html_text.replace("__PROVIDERS__", json.dumps(sorted(providers, key=sort_key), ensure_ascii=False))
     html_text = html_text.replace("__STATES__", json.dumps(states, ensure_ascii=False))
     html_text = html_text.replace("__REGIONS__", json.dumps(regions, ensure_ascii=False))
+    html_text = html_text.replace("__CARE_CATEGORIES__", json.dumps(care_categories, ensure_ascii=False))
     html_text = html_text.replace("__COUNT__", str(len(homes)))
     html_text = html_text.replace("__PROVIDER_COUNT__", str(len(providers)))
     html_text = html_text.replace("__AUSTRALIA_COUNT__", str(country_counts["Australia"]))
     html_text = html_text.replace("__CALIFORNIA_COUNT__", str(california_count))
+    html_text = html_text.replace("__CALIFORNIA_RCFE_COUNT__", str(california_rcfe_count))
+    html_text = html_text.replace("__CALIFORNIA_NURSING_HOME_COUNT__", str(california_nursing_home_count))
     html_text = html_text.replace("__BAY_AREA_COUNT__", str(bay_area_count))
+    html_text = html_text.replace("__SF_RCFE_COUNT__", str(sf_rcfe_count))
     html_text = html_text.replace("__VERIFIED_EXACT__", str(verification["confirmed_in_feb_2026_star_ratings"]))
     html_text = html_text.replace("__VERIFIED_PROVIDER_CHANGED__", str(verification["service_location_match_provider_changed"]))
     html_text = html_text.replace("__VERIFIED_UNMATCHED__", str(verification["not_matched_in_feb_2026_star_ratings"]))
@@ -765,6 +1012,7 @@ def write_html(homes, providers):
 def write_summary(homes, providers):
     states = Counter(home["state"] for home in homes)
     care_types = Counter(home["care_type"] for home in homes)
+    care_categories = Counter(care_category(home) for home in homes)
     countries = Counter(home["country"] for home in homes)
     regions = Counter(source_region(home) for home in homes)
     places = [home["residential_places"] for home in homes]
@@ -773,15 +1021,20 @@ def write_summary(homes, providers):
         "sources": [
             "GEN Aged Care Data / Department of Health, Disability and Ageing, Aged care service list: 30 June 2025",
             "CMS Provider Information, Nursing homes including rehab services: April 2026",
+            "California DSS Community Care Licensing Facilities, Residential Care Facilities for the Elderly: file date 05/25/2025",
         ],
-        "source_files": [SOURCE_XLSX.name, CMS_NURSING_HOME_CSV.name],
-        "included_care_type": "Australia Residential; California CMS currently active nursing homes",
+        "source_files": [SOURCE_XLSX.name, CMS_NURSING_HOME_CSV.name, CA_RCFE_CSV.name],
+        "included_care_type": (
+            "Australia Residential; California CMS currently active nursing homes; "
+            "California CDSS licensed/on-probation Residential Care Facilities for the Elderly"
+        ),
         "generated_home_count": len(homes),
         "provider_count": len(providers),
         "total_residential_places": sum(places),
         "median_residential_places": statistics.median(places),
         "country_counts": dict(sorted(countries.items())),
         "region_counts": dict(sorted(regions.items())),
+        "care_category_counts": dict(sorted(care_categories.items())),
         "care_type_counts": dict(sorted(care_types.items())),
         "state_counts": dict(sorted(states.items())),
         "top_20_providers": Counter(home["provider_name"] for home in homes).most_common(20),
@@ -795,13 +1048,15 @@ def write_readme(paths):
     path.write_text(
         f"""# Residential care homes by provider
 
-This folder contains a provider-coloured map of Australian residential aged-care homes and California nursing homes using official government source data.
+This folder contains a provider-coloured map of Australian residential aged-care homes and California residential care facilities using official government source data.
 
 Australian source: Department of Health, Disability and Ageing / AIHW GEN, "Aged care service list: 30 June 2025". The downloaded source file is `data/{SOURCE_XLSX.name}` and matches the current official Australia XLSX download.
 
-California source: Centers for Medicare & Medicaid Services (CMS), "Provider Information", Nursing homes including rehab services. The downloaded source file is `data/{CMS_NURSING_HOME_CSV.name}`.
+California nursing-home source: Centers for Medicare & Medicaid Services (CMS), "Provider Information", Nursing homes including rehab services. The downloaded source file is `data/{CMS_NURSING_HOME_CSV.name}`.
 
-Australian residential-active verification: Australian rows are restricted to `Care Type == Residential`. The generated verification report compares mapped Australian homes with the Department's `data/{STAR_RATINGS_XLSX.name}` service-level Star Ratings extract for February 2026. CMS describes the California Provider Information table as currently active nursing homes.
+California residential-care source: California Department of Social Services, "Community Care Licensing Facilities", Residential Care Facilities for the Elderly. The downloaded source file is `data/{CA_RCFE_CSV.name}` and the source data file date is 05/25/2025. Active rows with `facility_status` of `LICENSED` or `ON PROBATION` are included when they receive a usable U.S. Census Geocoder address match. `CLOSED` and `PENDING` rows are excluded.
+
+Australian residential-active verification: Australian rows are restricted to `Care Type == Residential`. The generated verification report compares mapped Australian homes with the Department's `data/{STAR_RATINGS_XLSX.name}` service-level Star Ratings extract for February 2026. CMS describes the California Provider Information table as currently active nursing homes. California RCFE rows are validated against the official CDSS CCLD file and geocoded with the U.S. Census Geocoder.
 
 Generated outputs:
 
@@ -816,7 +1071,7 @@ Generated outputs:
 - `output/source_validation_report.csv`: row-level validation evidence for every mapped home.
 - `output/source_validation_summary.json`: source metadata, row counts, checksums, and California/San Francisco validation totals.
 
-Inclusion rule: Australian rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude; California CMS rows with `State == CA` and valid latitude/longitude.
+Inclusion rule: Australian rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude; California CMS rows with `State == CA` and valid latitude/longitude; California RCFE rows with `facility_status` in `LICENSED` or `ON PROBATION`, `facility_capacity > 0`, and a usable Census Geocoder latitude/longitude.
 
 Use with Google My Maps:
 
@@ -830,6 +1085,20 @@ Regenerate with:
 
 ```bash
 python3 scripts/build_map.py
+```
+
+Professional HTTPS hosting:
+
+- CloudFront URL: https://dgv72coqns6yt.cloudfront.net/
+- Origin bucket: `andromeda-aged-care-provider-map-prod`
+- CloudFront distribution: `E2Y6OESD3IEA02`
+- The S3 origin is private, public bucket access is blocked, CloudFront redirects HTTP to HTTPS, and the AWS managed security headers policy is attached.
+
+Deploy updates with:
+
+```bash
+python3 scripts/build_map.py
+scripts/deploy_aws_static.sh
 ```
 
 Publish online with GitHub Pages:
@@ -853,7 +1122,7 @@ HTML_TEMPLATE = """<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Residential Care Homes by Provider</title>
-  <meta name="description" content="Interactive map of Australian residential aged-care homes and California nursing homes by provider using official GEN and CMS data.">
+  <meta name="description" content="Interactive map of Australian residential aged-care homes and California residential care facilities by provider using official GEN, CMS and CDSS data.">
   <meta property="og:title" content="Residential care homes by provider">
   <meta property="og:description" content="Search, filter and share an interactive provider-coloured map of official Australian and California residential care data.">
   <meta property="og:type" content="website">
@@ -919,7 +1188,7 @@ HTML_TEMPLATE = """<!doctype html>
   <section class="panel">
     <header>
 	      <h1>Residential care homes</h1>
-	      <div class="meta"><span class="count-pill">__COUNT__ homes</span><span>__PROVIDER_COUNT__ providers</span><span>Official GEN + CMS data</span></div>
+	      <div class="meta"><span class="count-pill">__COUNT__ homes</span><span>__PROVIDER_COUNT__ providers</span><span>Official GEN + CMS + CDSS data</span></div>
     </header>
     <div class="controls">
       <label>Search<input id="search" type="search" placeholder="Service, provider, suburb, address"></label>
@@ -927,6 +1196,7 @@ HTML_TEMPLATE = """<!doctype html>
 	        <summary>Filters and sharing</summary>
 	        <div class="advanced-content">
 	          <label>Region<select id="region"></select></label>
+	          <label>Care category<select id="careCategory"></select></label>
 	          <label>Provider<select id="provider"></select></label>
 	          <label>State / territory<select id="state"></select></label>
           <label>Map style<select id="mapStyle"></select></label>
@@ -944,10 +1214,11 @@ HTML_TEMPLATE = """<!doctype html>
     <details class="about">
       <summary>About this data</summary>
       <div class="about-content">
-	        <p>This map shows Australian residential aged care homes and California nursing homes from official government sources.</p>
+	        <p>This map shows Australian residential aged care homes and California residential care facilities from official government sources.</p>
 	        <p>Source: <a href="https://www.gen-agedcaredata.gov.au/resources/access-data/2025/october/aged-care-service-list-30-june-2025" target="_blank" rel="noopener">Aged care service list: 30 June 2025</a>. The source page says the files are current as at 30 June 2025 and updated annually.</p>
-	        <p>California source: <a href="https://data.cms.gov/provider-data/dataset/4pq5-n9py" target="_blank" rel="noopener">CMS Provider Information</a>. CMS describes this April 2026 dataset as general information on currently active nursing homes, one row per nursing home.</p>
-	        <p>Included Australian rows have residential places above zero and valid latitude/longitude. Included California rows are CMS currently active nursing homes with valid latitude/longitude; certified beds are shown where CMS supplies them. This version maps __AUSTRALIA_COUNT__ Australian homes, __CALIFORNIA_COUNT__ California homes, and __BAY_AREA_COUNT__ San Francisco Bay Area homes.</p>
+	        <p>California nursing-home source: <a href="https://data.cms.gov/provider-data/dataset/4pq5-n9py" target="_blank" rel="noopener">CMS Provider Information</a>. CMS describes this April 2026 dataset as general information on currently active nursing homes, one row per nursing home.</p>
+	        <p>California residential-care source: <a href="https://catalog.data.gov/dataset/community-care-licensing-facilities" target="_blank" rel="noopener">California DSS Community Care Licensing Facilities</a>, Residential Care Facilities for the Elderly. Included RCFE rows have status LICENSED or ON PROBATION in the official file dated 05/25/2025; CLOSED and PENDING rows are excluded. RCFE coordinates are matched from the facility address using the <a href="https://geocoding.geo.census.gov/geocoder/" target="_blank" rel="noopener">U.S. Census Geocoder</a>.</p>
+	        <p>Included Australian rows have residential places above zero and valid latitude/longitude. Included California rows include __CALIFORNIA_RCFE_COUNT__ active RCFEs/RCFE-CCRCS and __CALIFORNIA_NURSING_HOME_COUNT__ currently active CMS nursing homes. This version maps __AUSTRALIA_COUNT__ Australian homes, __CALIFORNIA_COUNT__ California homes, __BAY_AREA_COUNT__ San Francisco Bay Area homes, and __SF_RCFE_COUNT__ San Francisco RCFEs.</p>
 	        <p>Cross-check: <a href="https://www.health.gov.au/resources/publications/star-ratings-quarterly-data-extract-february-2026?language=en" target="_blank" rel="noopener">February 2026 Star Ratings service-level extract</a>. __VERIFIED_EXACT__ homes matched exactly; __VERIFIED_PROVIDER_CHANGED__ matched by service/suburb/state with provider-name differences; __VERIFIED_UNMATCHED__ were not matched and should be manually reviewed.</p>
 	        <p>Absence from the Star Ratings extract is not treated as proof that a home has closed.</p>
       </div>
@@ -959,9 +1230,11 @@ HTML_TEMPLATE = """<!doctype html>
 	    const providers = __PROVIDERS__;
 	    const states = __STATES__;
 	    const regions = __REGIONS__;
+	    const careCategories = __CARE_CATEGORIES__;
 	    const topProviders = __TOP_PROVIDERS__;
     const bounds = __BOUNDS__;
 	    const regionSelect = document.getElementById('region');
+	    const careCategorySelect = document.getElementById('careCategory');
 	    const providerSelect = document.getElementById('provider');
     const stateSelect = document.getElementById('state');
     const mapStyleSelect = document.getElementById('mapStyle');
@@ -1005,6 +1278,8 @@ HTML_TEMPLATE = """<!doctype html>
 
 	    option(regionSelect, '', 'All regions');
 	    regions.forEach(region => option(regionSelect, region, region));
+	    option(careCategorySelect, '', 'All care categories');
+	    careCategories.forEach(category => option(careCategorySelect, category, category));
 	    option(providerSelect, '', 'All providers');
     providers.forEach(provider => option(providerSelect, provider, provider));
     option(stateSelect, '', 'All states');
@@ -1026,9 +1301,11 @@ HTML_TEMPLATE = """<!doctype html>
 	        <div class="popup-title"><span class="dot" style="background:${home.provider_color}"></span>${escapeHtml(home.service_name)}</div>
 	        <div class="popup-row"><b>Provider:</b> ${escapeHtml(home.provider_name)}</div>
 	        <div class="popup-row"><b>Region:</b> ${escapeHtml(regionLabel(home))}</div>
-	        <div class="popup-row"><b>Places/beds:</b> ${home.residential_places}</div>
+	        <div class="popup-row"><b>Care category:</b> ${escapeHtml(home.care_category)}</div>
+	        <div class="popup-row"><b>Places/capacity/beds:</b> ${home.residential_places}</div>
 	        <div class="popup-row"><b>Address:</b> ${escapeHtml(home.address)}</div>
 	        <div class="popup-row"><b>Organisation:</b> ${escapeHtml(home.organisation_type)}</div>
+	        ${home.license_status ? `<div class="popup-row"><b>Status:</b> ${escapeHtml(home.license_status)}</div>` : ''}
 	        ${home.overall_rating ? `<div class="popup-row"><b>CMS overall rating:</b> ${escapeHtml(home.overall_rating)} / 5</div>` : ''}
 	        <div class="popup-row"><b>Source:</b> ${escapeHtml(home.source_dataset)}</div>
 	      `);
@@ -1061,6 +1338,7 @@ HTML_TEMPLATE = """<!doctype html>
     function selectedFilters() {
 	      return {
 	        region: regionSelect.value,
+	        careCategory: careCategorySelect.value,
 	        provider: providerSelect.value,
         state: stateSelect.value,
         q: searchInput.value.trim(),
@@ -1080,6 +1358,7 @@ HTML_TEMPLATE = """<!doctype html>
       const filters = selectedFilters();
 	      const params = new URLSearchParams();
 	      if (filters.region) params.set('region', filters.region);
+	      if (filters.careCategory) params.set('care', filters.careCategory);
 	      if (filters.provider) params.set('provider', filters.provider);
       if (filters.state) params.set('state', filters.state);
       if (filters.q) params.set('q', filters.q);
@@ -1100,6 +1379,7 @@ HTML_TEMPLATE = """<!doctype html>
 	      for (const item of markers) {
 	        const home = item.home;
 	        if (!matchesRegion(home, filters.region)) continue;
+	        if (filters.careCategory && home.care_category !== filters.careCategory) continue;
 	        if (filters.provider && home.provider_name !== filters.provider) continue;
         if (filters.state && home.state !== filters.state) continue;
         if (!matches(home, q)) continue;
@@ -1109,7 +1389,7 @@ HTML_TEMPLATE = """<!doctype html>
 	        places += home.residential_places;
 	        visibleProviders[home.provider_name] = (visibleProviders[home.provider_name] || 0) + 1;
 	      }
-	      visibleCount.textContent = `${shown.toLocaleString()} visible homes, ${places.toLocaleString()} places/beds`;
+	      visibleCount.textContent = `${shown.toLocaleString()} visible homes, ${places.toLocaleString()} places/capacity/beds`;
 	      if (filters.region !== lastRegion && shownBounds.length) {
 	        map.fitBounds(shownBounds, { paddingTopLeft: [470, 32], paddingBottomRight: [32, 32], animate: false });
 	        lastRegion = filters.region;
@@ -1136,6 +1416,7 @@ HTML_TEMPLATE = """<!doctype html>
 	    function applyUrlParams() {
 	      const params = new URLSearchParams(location.search);
 	      regionSelect.value = params.get('region') || '';
+	      careCategorySelect.value = params.get('care') || '';
 	      providerSelect.value = params.get('provider') || '';
       stateSelect.value = params.get('state') || '';
       searchInput.value = params.get('q') || '';
@@ -1144,6 +1425,7 @@ HTML_TEMPLATE = """<!doctype html>
 
 	    function resetFilters() {
 	      regionSelect.value = '';
+	      careCategorySelect.value = '';
 	      providerSelect.value = '';
       stateSelect.value = '';
       searchInput.value = '';
@@ -1162,7 +1444,7 @@ HTML_TEMPLATE = """<!doctype html>
       window.setTimeout(() => { shareButton.textContent = 'Copy share link'; }, 1800);
     }
 
-	    [regionSelect, providerSelect, stateSelect, mapStyleSelect, searchInput].forEach(el => el.addEventListener('input', applyFilters));
+	    [regionSelect, careCategorySelect, providerSelect, stateSelect, mapStyleSelect, searchInput].forEach(el => el.addEventListener('input', applyFilters));
     shareButton.addEventListener('click', copyShareLink);
     resetButton.addEventListener('click', resetFilters);
     applyUrlParams();

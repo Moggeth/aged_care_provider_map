@@ -1,12 +1,14 @@
 # Residential care homes by provider
 
-This folder contains a provider-coloured map of Australian residential aged-care homes and California nursing homes using official government source data.
+This folder contains a provider-coloured map of Australian residential aged-care homes and California residential care facilities using official government source data.
 
 Australian source: Department of Health, Disability and Ageing / AIHW GEN, "Aged care service list: 30 June 2025". The downloaded source file is `data/Service-List-2025-Australia_300126.xlsx` and matches the current official Australia XLSX download.
 
-California source: Centers for Medicare & Medicaid Services (CMS), "Provider Information", Nursing homes including rehab services. The downloaded source file is `data/NH_ProviderInfo_Apr2026.csv`.
+California nursing-home source: Centers for Medicare & Medicaid Services (CMS), "Provider Information", Nursing homes including rehab services. The downloaded source file is `data/NH_ProviderInfo_Apr2026.csv`.
 
-Australian residential-active verification: Australian rows are restricted to `Care Type == Residential`. The generated verification report compares mapped Australian homes with the Department's `data/star-ratings-quarterly-data-extract-february-2026.xlsx` service-level Star Ratings extract for February 2026. CMS describes the California Provider Information table as currently active nursing homes.
+California residential-care source: California Department of Social Services, "Community Care Licensing Facilities", Residential Care Facilities for the Elderly. The downloaded source file is `data/CA_RCFE_Community_Care_Licensing_Facilities_20250525.csv` and the source data file date is 05/25/2025. Active rows with `facility_status` of `LICENSED` or `ON PROBATION` are included when they receive a usable U.S. Census Geocoder address match. `CLOSED` and `PENDING` rows are excluded.
+
+Australian residential-active verification: Australian rows are restricted to `Care Type == Residential`. The generated verification report compares mapped Australian homes with the Department's `data/star-ratings-quarterly-data-extract-february-2026.xlsx` service-level Star Ratings extract for February 2026. CMS describes the California Provider Information table as currently active nursing homes. California RCFE rows are validated against the official CDSS CCLD file and geocoded with the U.S. Census Geocoder.
 
 Generated outputs:
 
@@ -21,7 +23,7 @@ Generated outputs:
 - `output/source_validation_report.csv`: row-level validation evidence for every mapped home.
 - `output/source_validation_summary.json`: source metadata, row counts, checksums, and California/San Francisco validation totals.
 
-Inclusion rule: Australian rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude; California CMS rows with `State == CA` and valid latitude/longitude.
+Inclusion rule: Australian rows with `Care Type == Residential`, `Residential Places > 0`, and valid latitude/longitude; California CMS rows with `State == CA` and valid latitude/longitude; California RCFE rows with `facility_status` in `LICENSED` or `ON PROBATION`, `facility_capacity > 0`, and a usable Census Geocoder latitude/longitude.
 
 Use with Google My Maps:
 
