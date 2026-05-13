@@ -29,6 +29,10 @@
     "California RCFE-CCRC": 100,
     "California nursing home": 1162
   },
+  "california_fit_counts": {
+    "High-fit elder residential": 7635,
+    "Hybrid facility": 1262
+  },
   "care_type_counts": {
     "Continuing care retirement community": 100,
     "Nursing home": 1162,

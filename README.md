@@ -10,6 +10,8 @@ California residential-care source: California Department of Social Services, "C
 
 Australian residential-active verification: Australian rows are restricted to `Care Type == Residential`. The generated verification report compares mapped Australian homes with the Department's `data/star-ratings-quarterly-data-extract-february-2026.xlsx` service-level Star Ratings extract for February 2026. CMS describes the California Provider Information table as currently active nursing homes. California RCFE rows are validated against the official CDSS CCLD file and geocoded with the U.S. Census Geocoder.
 
+California prospecting fit: the map adds a practical, non-official filter that labels standard CDSS `RESIDENTIAL CARE ELDERLY` rows as `High-fit elder residential`, and labels CDSS `RCFE-CONTINUING CARE RETIREMENT COMMUNITY` plus CMS nursing homes as `Hybrid facility`.
+
 Generated outputs:
 
 - `output/aged_care_homes_by_provider.html`: interactive browser map with provider and state filters.

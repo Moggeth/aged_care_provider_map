@@ -23,6 +23,11 @@
   },
   "california": {
     "mapped_california_rows": 8897,
+    "prospecting_fit_counts": {
+      "High-fit elder residential": 7635,
+      "Hybrid facility": 1262
+    },
+    "prospecting_fit_interpretation": "High-fit elder residential is a practical filter for standard CDSS Residential Care Facility for the Elderly rows. Hybrid facility covers CDSS RCFE-CCRC and CMS nursing-home/skilled-nursing rows.",
     "bay_area_counties": [
       "Alameda",
       "Contra Costa",

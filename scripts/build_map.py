@@ -195,6 +195,16 @@ def care_category(home):
     return home.get("care_type") or "Other"
 
 
+def california_fit(home):
+    if home.get("country") != "United States" or home.get("state") != "CA":
+        return ""
+    if home.get("source_type") == "ca_rcfe":
+        return "High-fit elder residential"
+    if home.get("source_type") in {"ca_rcfe_ccrc", "ca_cms_nursing_home"}:
+        return "Hybrid facility"
+    return "Unclassified California facility"
+
+
 def provider_color(provider, providers):
     idx = providers[provider]
     total = max(len(providers), 1)
@@ -732,6 +742,13 @@ def write_source_validation_report(homes):
     ]
     california_summary = {
         "mapped_california_rows": len(california_homes),
+        "prospecting_fit_counts": dict(
+            sorted(Counter(california_fit(home) for home in california_homes if california_fit(home)).items())
+        ),
+        "prospecting_fit_interpretation": (
+            "High-fit elder residential is a practical filter for standard CDSS Residential Care Facility for the "
+            "Elderly rows. Hybrid facility covers CDSS RCFE-CCRC and CMS nursing-home/skilled-nursing rows."
+        ),
         "bay_area_counties": sorted(SF_BAY_AREA_COUNTIES),
         "cms_nursing_homes": {
             "official_source": "CMS Provider Information",
@@ -877,6 +894,7 @@ def write_geojson(homes):
     for home in homes:
         props = {k: v for k, v in home.items() if k not in ("latitude", "longitude")}
         props["care_category"] = care_category(home)
+        props["california_fit"] = california_fit(home)
         features.append(
             {
                 "type": "Feature",
@@ -960,12 +978,15 @@ def write_html(homes, providers):
     states = sorted({home["state"] for home in homes if home["state"]})
     regions = ["Australia", "California", "San Francisco Bay Area"]
     care_categories = sorted({care_category(home) for home in homes}, key=sort_key)
+    california_fits = ["High-fit elder residential", "Hybrid facility"]
     provider_counts = Counter(home["provider_name"] for home in homes)
     top_providers = provider_counts.most_common(20)
     _ratings, verification, _exact_rating_keys, _service_location_rating_keys = verification_counts(homes)
     country_counts = Counter(home["country"] for home in homes)
     california_count = sum(1 for home in homes if home.get("country") == "United States" and home.get("state") == "CA")
     california_rcfe_count = sum(1 for home in homes if home.get("source_type") in {"ca_rcfe", "ca_rcfe_ccrc"})
+    california_high_fit_count = sum(1 for home in homes if california_fit(home) == "High-fit elder residential")
+    california_hybrid_count = sum(1 for home in homes if california_fit(home) == "Hybrid facility")
     california_nursing_home_count = sum(1 for home in homes if home.get("source_type") == "ca_cms_nursing_home")
     bay_area_count = sum(1 for home in homes if home.get("metro_area") == "San Francisco Bay Area")
     sf_rcfe_count = sum(
@@ -981,6 +1002,7 @@ def write_html(homes, providers):
             "provider_color": home["provider_color"],
             "funding_2024_25": round(home["funding_2024_25"] or 0, 2),
             "care_category": care_category(home),
+            "california_fit": california_fit(home),
         }
         for home in homes
     ]
@@ -989,11 +1011,14 @@ def write_html(homes, providers):
     html_text = html_text.replace("__STATES__", json.dumps(states, ensure_ascii=False))
     html_text = html_text.replace("__REGIONS__", json.dumps(regions, ensure_ascii=False))
     html_text = html_text.replace("__CARE_CATEGORIES__", json.dumps(care_categories, ensure_ascii=False))
+    html_text = html_text.replace("__CALIFORNIA_FITS__", json.dumps(california_fits, ensure_ascii=False))
     html_text = html_text.replace("__COUNT__", str(len(homes)))
     html_text = html_text.replace("__PROVIDER_COUNT__", str(len(providers)))
     html_text = html_text.replace("__AUSTRALIA_COUNT__", str(country_counts["Australia"]))
     html_text = html_text.replace("__CALIFORNIA_COUNT__", str(california_count))
     html_text = html_text.replace("__CALIFORNIA_RCFE_COUNT__", str(california_rcfe_count))
+    html_text = html_text.replace("__CALIFORNIA_HIGH_FIT_COUNT__", str(california_high_fit_count))
+    html_text = html_text.replace("__CALIFORNIA_HYBRID_COUNT__", str(california_hybrid_count))
     html_text = html_text.replace("__CALIFORNIA_NURSING_HOME_COUNT__", str(california_nursing_home_count))
     html_text = html_text.replace("__BAY_AREA_COUNT__", str(bay_area_count))
     html_text = html_text.replace("__SF_RCFE_COUNT__", str(sf_rcfe_count))
@@ -1013,6 +1038,7 @@ def write_summary(homes, providers):
     states = Counter(home["state"] for home in homes)
     care_types = Counter(home["care_type"] for home in homes)
     care_categories = Counter(care_category(home) for home in homes)
+    california_fits = Counter(california_fit(home) for home in homes if california_fit(home))
     countries = Counter(home["country"] for home in homes)
     regions = Counter(source_region(home) for home in homes)
     places = [home["residential_places"] for home in homes]
@@ -1035,6 +1061,7 @@ def write_summary(homes, providers):
         "country_counts": dict(sorted(countries.items())),
         "region_counts": dict(sorted(regions.items())),
         "care_category_counts": dict(sorted(care_categories.items())),
+        "california_fit_counts": dict(sorted(california_fits.items())),
         "care_type_counts": dict(sorted(care_types.items())),
         "state_counts": dict(sorted(states.items())),
         "top_20_providers": Counter(home["provider_name"] for home in homes).most_common(20),
@@ -1057,6 +1084,8 @@ California nursing-home source: Centers for Medicare & Medicaid Services (CMS), 
 California residential-care source: California Department of Social Services, "Community Care Licensing Facilities", Residential Care Facilities for the Elderly. The downloaded source file is `data/{CA_RCFE_CSV.name}` and the source data file date is 05/25/2025. Active rows with `facility_status` of `LICENSED` or `ON PROBATION` are included when they receive a usable U.S. Census Geocoder address match. `CLOSED` and `PENDING` rows are excluded.
 
 Australian residential-active verification: Australian rows are restricted to `Care Type == Residential`. The generated verification report compares mapped Australian homes with the Department's `data/{STAR_RATINGS_XLSX.name}` service-level Star Ratings extract for February 2026. CMS describes the California Provider Information table as currently active nursing homes. California RCFE rows are validated against the official CDSS CCLD file and geocoded with the U.S. Census Geocoder.
+
+California prospecting fit: the map adds a practical, non-official filter that labels standard CDSS `RESIDENTIAL CARE ELDERLY` rows as `High-fit elder residential`, and labels CDSS `RCFE-CONTINUING CARE RETIREMENT COMMUNITY` plus CMS nursing homes as `Hybrid facility`.
 
 Generated outputs:
 
@@ -1196,6 +1225,7 @@ HTML_TEMPLATE = """<!doctype html>
 	        <summary>Filters and sharing</summary>
 	        <div class="advanced-content">
 	          <label>Region<select id="region"></select></label>
+	          <label>California fit<select id="californiaFit"></select></label>
 	          <label>Care category<select id="careCategory"></select></label>
 	          <label>Provider<select id="provider"></select></label>
 	          <label>State / territory<select id="state"></select></label>
@@ -1219,6 +1249,7 @@ HTML_TEMPLATE = """<!doctype html>
 	        <p>California nursing-home source: <a href="https://data.cms.gov/provider-data/dataset/4pq5-n9py" target="_blank" rel="noopener">CMS Provider Information</a>. CMS describes this April 2026 dataset as general information on currently active nursing homes, one row per nursing home.</p>
 	        <p>California residential-care source: <a href="https://catalog.data.gov/dataset/community-care-licensing-facilities" target="_blank" rel="noopener">California DSS Community Care Licensing Facilities</a>, Residential Care Facilities for the Elderly. Included RCFE rows have status LICENSED or ON PROBATION in the official file dated 05/25/2025; CLOSED and PENDING rows are excluded. RCFE coordinates are matched from the facility address using the <a href="https://geocoding.geo.census.gov/geocoder/" target="_blank" rel="noopener">U.S. Census Geocoder</a>.</p>
 	        <p>Included Australian rows have residential places above zero and valid latitude/longitude. Included California rows include __CALIFORNIA_RCFE_COUNT__ active RCFEs/RCFE-CCRCS and __CALIFORNIA_NURSING_HOME_COUNT__ currently active CMS nursing homes. This version maps __AUSTRALIA_COUNT__ Australian homes, __CALIFORNIA_COUNT__ California homes, __BAY_AREA_COUNT__ San Francisco Bay Area homes, and __SF_RCFE_COUNT__ San Francisco RCFEs.</p>
+	        <p>The California fit filter is a practical prospecting classification, not an official license category. High-fit elder residential means a standard CDSS Residential Care Facility for the Elderly (__CALIFORNIA_HIGH_FIT_COUNT__ mapped facilities). Hybrid facility means an RCFE-CCRC or CMS nursing home/skilled nursing facility (__CALIFORNIA_HYBRID_COUNT__ mapped facilities); these may house older long-term residents, but can also include continuing-care, rehabilitation, skilled-nursing, hospital-based, or clinically complex populations.</p>
 	        <p>Cross-check: <a href="https://www.health.gov.au/resources/publications/star-ratings-quarterly-data-extract-february-2026?language=en" target="_blank" rel="noopener">February 2026 Star Ratings service-level extract</a>. __VERIFIED_EXACT__ homes matched exactly; __VERIFIED_PROVIDER_CHANGED__ matched by service/suburb/state with provider-name differences; __VERIFIED_UNMATCHED__ were not matched and should be manually reviewed.</p>
 	        <p>Absence from the Star Ratings extract is not treated as proof that a home has closed.</p>
       </div>
@@ -1231,9 +1262,11 @@ HTML_TEMPLATE = """<!doctype html>
 	    const states = __STATES__;
 	    const regions = __REGIONS__;
 	    const careCategories = __CARE_CATEGORIES__;
+	    const californiaFits = __CALIFORNIA_FITS__;
 	    const topProviders = __TOP_PROVIDERS__;
     const bounds = __BOUNDS__;
 	    const regionSelect = document.getElementById('region');
+	    const californiaFitSelect = document.getElementById('californiaFit');
 	    const careCategorySelect = document.getElementById('careCategory');
 	    const providerSelect = document.getElementById('provider');
     const stateSelect = document.getElementById('state');
@@ -1278,6 +1311,8 @@ HTML_TEMPLATE = """<!doctype html>
 
 	    option(regionSelect, '', 'All regions');
 	    regions.forEach(region => option(regionSelect, region, region));
+	    option(californiaFitSelect, '', 'All California fit types');
+	    californiaFits.forEach(fit => option(californiaFitSelect, fit, fit));
 	    option(careCategorySelect, '', 'All care categories');
 	    careCategories.forEach(category => option(careCategorySelect, category, category));
 	    option(providerSelect, '', 'All providers');
@@ -1302,6 +1337,7 @@ HTML_TEMPLATE = """<!doctype html>
 	        <div class="popup-row"><b>Provider:</b> ${escapeHtml(home.provider_name)}</div>
 	        <div class="popup-row"><b>Region:</b> ${escapeHtml(regionLabel(home))}</div>
 	        <div class="popup-row"><b>Care category:</b> ${escapeHtml(home.care_category)}</div>
+	        ${home.california_fit ? `<div class="popup-row"><b>California fit:</b> ${escapeHtml(home.california_fit)}</div>` : ''}
 	        <div class="popup-row"><b>Places/capacity/beds:</b> ${home.residential_places}</div>
 	        <div class="popup-row"><b>Address:</b> ${escapeHtml(home.address)}</div>
 	        <div class="popup-row"><b>Organisation:</b> ${escapeHtml(home.organisation_type)}</div>
@@ -1338,6 +1374,7 @@ HTML_TEMPLATE = """<!doctype html>
     function selectedFilters() {
 	      return {
 	        region: regionSelect.value,
+	        californiaFit: californiaFitSelect.value,
 	        careCategory: careCategorySelect.value,
 	        provider: providerSelect.value,
         state: stateSelect.value,
@@ -1358,6 +1395,7 @@ HTML_TEMPLATE = """<!doctype html>
       const filters = selectedFilters();
 	      const params = new URLSearchParams();
 	      if (filters.region) params.set('region', filters.region);
+	      if (filters.californiaFit) params.set('caFit', filters.californiaFit);
 	      if (filters.careCategory) params.set('care', filters.careCategory);
 	      if (filters.provider) params.set('provider', filters.provider);
       if (filters.state) params.set('state', filters.state);
@@ -1379,6 +1417,7 @@ HTML_TEMPLATE = """<!doctype html>
 	      for (const item of markers) {
 	        const home = item.home;
 	        if (!matchesRegion(home, filters.region)) continue;
+	        if (filters.californiaFit && home.california_fit !== filters.californiaFit) continue;
 	        if (filters.careCategory && home.care_category !== filters.careCategory) continue;
 	        if (filters.provider && home.provider_name !== filters.provider) continue;
         if (filters.state && home.state !== filters.state) continue;
@@ -1416,6 +1455,7 @@ HTML_TEMPLATE = """<!doctype html>
 	    function applyUrlParams() {
 	      const params = new URLSearchParams(location.search);
 	      regionSelect.value = params.get('region') || '';
+	      californiaFitSelect.value = params.get('caFit') || '';
 	      careCategorySelect.value = params.get('care') || '';
 	      providerSelect.value = params.get('provider') || '';
       stateSelect.value = params.get('state') || '';
@@ -1425,6 +1465,7 @@ HTML_TEMPLATE = """<!doctype html>
 
 	    function resetFilters() {
 	      regionSelect.value = '';
+	      californiaFitSelect.value = '';
 	      careCategorySelect.value = '';
 	      providerSelect.value = '';
       stateSelect.value = '';
@@ -1444,7 +1485,7 @@ HTML_TEMPLATE = """<!doctype html>
       window.setTimeout(() => { shareButton.textContent = 'Copy share link'; }, 1800);
     }
 
-	    [regionSelect, careCategorySelect, providerSelect, stateSelect, mapStyleSelect, searchInput].forEach(el => el.addEventListener('input', applyFilters));
+	    [regionSelect, californiaFitSelect, careCategorySelect, providerSelect, stateSelect, mapStyleSelect, searchInput].forEach(el => el.addEventListener('input', applyFilters));
     shareButton.addEventListener('click', copyShareLink);
     resetButton.addEventListener('click', resetFilters);
     applyUrlParams();
